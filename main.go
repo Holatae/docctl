@@ -42,7 +42,8 @@ type Association struct {
 }
 
 type Settings struct {
-	CreateZIP bool `yaml:"create_zip"`
+	CreateZIP         bool `yaml:"create_zip"`
+	UseOpenTimeStamps bool `yaml:"use_open_time_stamps"`
 }
 
 func loadConfig(projRoot string) Config {
@@ -53,7 +54,7 @@ func loadConfig(projRoot string) Config {
 	if err != nil {
 		cfg = Config{
 			Foreningar: map[string]Association{},
-			Settings:   Settings{CreateZIP: true},
+			Settings:   Settings{CreateZIP: true, UseOpenTimeStamps: false},
 		}
 		saveConfig(projRoot, cfg)
 		return cfg
@@ -502,25 +503,29 @@ func doSeal(kallorPath string, key string, force bool) (err error) {
 		}
 	}
 
-	// ============================================
-	// OPENTIMESTAMPS (Tidsstämpling på Blockkedjan)
-	// ============================================
-	fmt.Println("   -> Söker efter OpenTimestamps för oantastligt tidsbevis...")
+	cfg := loadConfig(projRoot)
 
-	// Kolla om 'ots' finns installerat på datorn
-	_, errOTS := exec.LookPath("ots")
-	if errOTS == nil {
-		fmt.Println("   -> 'ots' hittades! Tidsstämplar manifestet mot Bitcoin-nätverket...")
+	if cfg.Settings.UseOpenTimeStamps {
+		// ============================================
+		// OPENTIMESTAMPS (Tidsstämpling på Blockkedjan)
+		// ============================================
+		fmt.Println("   -> Söker efter OpenTimestamps för oantastligt tidsbevis...")
 
-		// Kör kommandot: ots stamp ATTESTATION.md.sig
-		cmdOTS := exec.Command("ots", "stamp", sigPath)
-		if err := cmdOTS.Run(); err != nil {
-			fmt.Println("   ⚠️ Kunde inte nå OTS-servern just nu. Hoppar över tidsstämpel.")
+		// Kolla om 'ots' finns installerat på datorn
+		_, errOTS := exec.LookPath("ots")
+		if errOTS == nil {
+			fmt.Println("   -> 'ots' hittades! Tidsstämplar manifestet mot Bitcoin-nätverket...")
+
+			// Kör kommandot: ots stamp ATTESTATION.md.sig
+			cmdOTS := exec.Command("ots", "stamp", sigPath)
+			if err := cmdOTS.Run(); err != nil {
+				fmt.Println("   ⚠️ Kunde inte nå OTS-servern just nu. Hoppar över tidsstämpel.")
+			} else {
+				fmt.Println("   ✅ Tidsstämpel skapad (.ots-fil sparad i arkivet).")
+			}
 		} else {
-			fmt.Println("   ✅ Tidsstämpel skapad (.ots-fil sparad i arkivet).")
+			fmt.Println("   💡 Tips: Installera 'opentimestamps-client' för att få gratis, kryptografiska tidsstämplar!")
 		}
-	} else {
-		fmt.Println("   💡 Tips: Installera 'opentimestamps-client' för att få gratis, kryptografiska tidsstämplar!")
 	}
 
 	fmt.Println("✅ Arkivet är låst och GPG-signerat.")
