@@ -3,6 +3,7 @@ package main
 import (
 	"archive/zip"
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"embed"
 	"encoding/hex"
@@ -11,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -29,14 +31,14 @@ var embeddedFiles embed.FS
 // DATAMODELLER FÖR CONFIG
 // ============================================
 type Config struct {
-	Foreningar map[string]Forening `yaml:"foreningar"`
-	Settings   Settings            `yaml:"settings"`
+	Foreningar map[string]Association `yaml:"foreningar"`
+	Settings   Settings               `yaml:"settings"`
 }
 
-type Forening struct {
-	Namn      string   `yaml:"namn"`
+type Association struct {
+	Name      string   `yaml:"namn"`
 	OrgNummer string   `yaml:"org_nummer"`
-	Organ     []string `yaml:"organ"`
+	Body      []string `yaml:"organ"`
 }
 
 type Settings struct {
@@ -50,13 +52,13 @@ func loadConfig(projRoot string) Config {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		cfg = Config{
-			Foreningar: map[string]Forening{},
+			Foreningar: map[string]Association{},
 			Settings:   Settings{CreateZIP: true},
 		}
 		saveConfig(projRoot, cfg)
 		return cfg
 	}
-	yaml.Unmarshal(data, &cfg)
+	_ = yaml.Unmarshal(data, &cfg)
 	return cfg
 }
 
@@ -70,29 +72,46 @@ func saveConfig(projRoot string, cfg Config) {
 // ============================================
 // HJÄLPFUNKTIONER
 // ============================================
-func runCmd(name string, args ...string) {
+
+// runCmd runs a given command in the terminal
+func runCmd(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
-	stderr, _ := cmd.StderrPipe()
-	cmd.Start()
-	slurp, _ := io.ReadAll(stderr)
-	if err := cmd.Wait(); err != nil {
-		fmt.Printf("❌ Fel vid körning av %s:\n%s\n", name, string(slurp))
-		os.Exit(1)
+
+	// Fånga stderr (felmeddelanden) i en buffer istället för en komplicerad pipe
+	var stderr bytes.Buffer
+	cmd.Stderr = &stderr
+
+	// cmd.Run() utför kommandot och väntar tills det är klart
+	err := cmd.Run()
+	if err != nil {
+		// Baka in stderr i det returnerade felet så att det syns tydligt i terminalen
+		return fmt.Errorf("fel vid körning av %s: %w\nOutput: %s", name, err, stderr.String())
 	}
+
+	return nil
 }
 
-func hashFile(filePath string) string {
+func hashFile(filePath string) (string, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
-		return ""
+		return "", err
 	}
-	defer f.Close()
+	defer func() {
+		_ = f.Close()
+	}()
+
 	h := sha256.New()
-	io.Copy(h, f)
-	return hex.EncodeToString(h.Sum(nil))
+
+	if _, err := io.Copy(h, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
 func createOrgTemplate(projRoot, orgID, orgNamn, orgNummer string) {
+	cfg := loadConfig(projRoot)
+	cwd, _ := os.Getwd()
+
 	mallDir := filepath.Join(projRoot, orgID, "mallar")
 	os.MkdirAll(mallDir, 0o755)
 	outPath := filepath.Join(mallDir, orgID+".typ")
@@ -105,6 +124,9 @@ func createOrgTemplate(projRoot, orgID, orgNamn, orgNummer string) {
 			// Hitta och ersätt våra platshållare!
 			content = strings.ReplaceAll(content, "{{ORG_NAMN}}", orgNamn)
 			content = strings.ReplaceAll(content, "{{ORG_NUMMER}}", orgNummer)
+
+			cfg.Foreningar[orgID] = Association{Name: orgNamn, OrgNummer: orgNummer, Body: []string{"styrelsen", "årsmöte"}}
+			saveConfig(cwd, cfg)
 
 			os.WriteFile(outPath, []byte(content), 0o644)
 		} else {
@@ -183,13 +205,13 @@ func pausePrompt() {
 // FIRST RUN / ONBOARDING
 // ============================================
 
-func checkFirstRun() {
+func checkFirstRun() error {
 	cwd, _ := os.Getwd()
 	toolingDir := filepath.Join(cwd, ".tooling")
 
 	// Om .tooling redan finns, är allt frid och fröjd. Avbryt och starta programmet.
 	if _, err := os.Stat(toolingDir); !os.IsNotExist(err) {
-		return
+		return nil
 	}
 
 	// Mappen är tom! Vi frågar användaren om de vill bygga ett arkiv.
@@ -210,27 +232,42 @@ func checkFirstRun() {
 		os.Exit(0)
 	}
 
+	if err := firstTimeRun(toolingDir, cwd); err != nil {
+		return err
+	}
+	time.Sleep(2 * time.Second)
+	return nil
+}
+
+// firstTimeRun creates all relevant folders and files
+func firstTimeRun(toolingDir string, cwd string) (err error) {
 	fmt.Println("\n🚀 Initierar nytt arbetsutrymme...")
+	fmt.Printf("🕵️ AVSLÖJANDE: firstTimeRun sparar mallar i mappen: %s\n", filepath.Join(toolingDir, "mallar"))
 
 	// 1. Skapa mappar
 	mallarDir := filepath.Join(toolingDir, "mallar")
-	os.MkdirAll(mallarDir, 0o755)
+	if err := os.MkdirAll(mallarDir, 0o755); err != nil {
+		return fmt.Errorf("Could not create mallar directory: %v", err)
+	}
 
 	// 2. Automagisk uppackning: Läs alla filer som bäddades in i "embeds"-mappen!
 	filer, err := embeddedFiles.ReadDir("embeds")
 	if err != nil {
-		fmt.Println("❌ LARM: Kunde inte läsa inbäddade filer. Finns mappen 'embeds' i Go-koden?")
-	} else {
-		for _, fil := range filer {
-			if !fil.IsDir() {
-				// Läs filen inifrån binären
-				innehall, errLäs := embeddedFiles.ReadFile("embeds/" + fil.Name())
-				if errLäs == nil {
-					// Skriv ut den till hårddisken
-					utSökväg := filepath.Join(mallarDir, fil.Name())
-					os.WriteFile(utSökväg, innehall, 0o644)
-					fmt.Printf("   -> Packade upp systemmall: %s\n", fil.Name())
+		_ = fmt.Errorf("Couldn't read embeds dir: %v", err)
+		return err
+	}
+
+	for _, fil := range filer {
+		if !fil.IsDir() {
+			// Läs filen inifrån binären
+			innehall, errLäs := embeddedFiles.ReadFile("embeds/" + fil.Name())
+			if errLäs == nil {
+				// Skriv ut den till hårddisken
+				utSökväg := filepath.Join(mallarDir, fil.Name())
+				if err := os.WriteFile(utSökväg, innehall, 0o644); err != nil {
+					return fmt.Errorf("Cannot write file: %v", err)
 				}
+				fmt.Printf("   -> Packade upp systemmall: %s\n", fil.Name())
 			}
 		}
 	}
@@ -256,15 +293,15 @@ Thumbs.db
 	}
 
 	fmt.Println("✅ Arbetsutrymme skapat! Du är redo att köra.")
-	time.Sleep(2 * time.Second) // Pausa i 2 sekunder så användaren hinner läsa innan TUI:t tar över skärmen
+	return nil
 }
 
 // ============================================
 // LOGIK MOTOR (doBuild & doSeal)
 // ============================================
 
-func doBuild(orgName string, kallorPath string, force bool) {
-	kallorDir, _ := filepath.Abs(kallorPath)
+func doBuild(pathToSources string, force bool) (err error) {
+	kallorDir, _ := filepath.Abs(pathToSources)
 	motesDir := filepath.Dir(kallorDir)
 	arkivDir := filepath.Join(motesDir, "arkiv")
 	sigPath := filepath.Join(arkivDir, "ATTESTATION.md.sig")
@@ -298,6 +335,14 @@ func doBuild(orgName string, kallorPath string, force bool) {
 		curr = parent
 	}
 
+	// Räkna ut Orgname
+	relPath, err := filepath.Rel(projRoot, kallorDir)
+	if err != nil {
+		return fmt.Errorf("Couldn't get relative path of kallor: %v", err)
+	}
+
+	orgName := strings.Split(relPath, string(filepath.Separator))[0]
+
 	orgMallPath := filepath.Join(projRoot, orgName, "mallar", orgName+".typ")
 	pandocTemplate := filepath.Join(projRoot, ".tooling", "mallar", "pandoc_klister.typ")
 
@@ -312,25 +357,39 @@ func doBuild(orgName string, kallorPath string, force bool) {
 	}
 
 	if mdFile == "" {
-		fmt.Println("❌ Hittade ingen .md-fil i källor !")
-		os.Exit(1)
+		return fmt.Errorf("❌ Hittade ingen .md-fil i källor !")
+	}
+
+	// 1. Kolla att mallen faktiskt finns!
+	if stat, err := os.Stat(pandocTemplate); os.IsNotExist(err) || stat.Size() == 0 {
+		return fmt.Errorf("❌ KATASTROF: Mallen finns inte på disken (eller är tom)!\nFörväntad sökväg: %s", pandocTemplate)
 	}
 
 	relMallPath, _ := filepath.Rel(arkivDir, orgMallPath)
 	fmt.Printf("🔄 Bygger dokument för %s...\n", orgName)
 
 	tempTypst := filepath.Join(arkivDir, baseName+"_temp.typ")
-	runCmd("pandoc", mdFile, "-t", "typst", "-o", tempTypst, "--template", pandocTemplate, "-V", "org_mall="+relMallPath)
+	if err := runCmd("pandoc", mdFile, "-t", "typst", "-o", tempTypst, "--template", pandocTemplate, "-V", "org_mall="+relMallPath); err != nil {
+		return fmt.Errorf("Pandoc misslyckades %w", err)
+	}
 
 	pdfOut := filepath.Join(arkivDir, baseName+".pdf")
-	runCmd("typst", "compile", "--root", projRoot, "--pdf-standard", "a-2b", tempTypst, pdfOut)
+
+	if err := runCmd("typst", "compile", "--root", projRoot, "--pdf-standard", "a-2b", tempTypst, pdfOut); err != nil {
+		return fmt.Errorf("Typst failed to compile: %w", err)
+	}
+
 	os.Remove(tempTypst)
 
 	htmlOut := filepath.Join(arkivDir, baseName+".html")
-	runCmd("pandoc", mdFile, "-o", htmlOut, "--standalone")
+	if err := runCmd("pandoc", mdFile, "-o", htmlOut, "--standalone"); err != nil {
+		return fmt.Errorf("Pandoc failed to compile (HTML): %w", err)
+	}
 
 	docxOut := filepath.Join(arkivDir, baseName+".docx")
-	runCmd("pandoc", mdFile, "-o", docxOut)
+	if err := runCmd("pandoc", mdFile, "-o", docxOut); err != nil {
+		return fmt.Errorf("Pandoc failed to compile (DOCX): %w", err)
+	}
 
 	bilagorSrc := filepath.Join(kallorDir, "bilagor")
 	bilagorDest := filepath.Join(arkivDir, "bilagor")
@@ -339,9 +398,11 @@ func doBuild(orgName string, kallorPath string, force bool) {
 	}
 
 	fmt.Println("✅ Klart! Output: ", arkivDir)
+
+	return nil
 }
 
-func doSeal(kallorPath string, key string, force bool) {
+func doSeal(kallorPath string, key string, force bool) (err error) {
 	kallorDir, _ := filepath.Abs(kallorPath)
 	motesDir := filepath.Dir(kallorDir)
 	arkivDir := filepath.Join(motesDir, "arkiv")
@@ -374,13 +435,37 @@ func doSeal(kallorPath string, key string, force bool) {
 	sort.Strings(files)
 
 	f, _ := os.Create(manifestPath)
-	f.WriteString("# Arkivmanifest\n\n")
-	f.WriteString(fmt.Sprintf("**Förseglat:** %s\n\n", time.Now().Format("2006-01-02 15:04:05")))
-	f.WriteString("Undertecknad intygar härmed att nedanstående filer\nuthör det formellt justerade och godkända dokumentet.\n\n")
-	f.WriteString("### Arkivinnehåll:\n")
+
+	if _, err := f.WriteString("# Arkivmanifest\n\n"); err != nil {
+		return fmt.Errorf("failed to write manifest: %w", err)
+	}
+	if _, err := f.WriteString(fmt.Sprintf("**Förseglat:** %s\n\n", time.Now().Format("2006-01-02 15:04:05"))); err != nil {
+		return fmt.Errorf("failed to write manifest: %w", err)
+	}
+
+	if _, err := f.WriteString("Undertecknad intygar härmed att nedanstående filer\nuthör det formellt justerade och godkända dokumentet.\n\n"); err != nil {
+		return fmt.Errorf("failed to write manifest: %w", err)
+	}
+
+	if _, err := f.WriteString("### Arkivinnehåll:\n"); err != nil {
+		return fmt.Errorf("failed to write manifest: %w", err)
+	}
+
 	for _, file := range files {
-		relPath, _ := filepath.Rel(arkivDir, file)
-		f.WriteString(fmt.Sprintf("- `%s` (SHA-256: `%s`)\n", relPath, hashFile(file)))
+		relPath, err := filepath.Rel(arkivDir, file)
+		if err != nil {
+			return fmt.Errorf("Failed to calculate relative path")
+		}
+		hashStr, err := hashFile(file)
+		if err != nil {
+			return fmt.Errorf("Failed to calculate hash")
+		}
+
+		line := fmt.Sprintf("- `%s` (SHA-256: `%s`)\n", relPath, hashStr)
+
+		if _, err := f.WriteString(line); err != nil {
+			return fmt.Errorf("Failed to write to file")
+		}
 	}
 	f.Close()
 
@@ -439,6 +524,8 @@ func doSeal(kallorPath string, key string, force bool) {
 	}
 
 	fmt.Println("✅ Arkivet är låst och GPG-signerat.")
+
+	return nil
 }
 
 // ============================================
@@ -460,7 +547,7 @@ var buildCmd = &cobra.Command{
 	Use:  "build [org] [sökväg]",
 	Args: cobra.ExactArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
-		doBuild(args[0], args[1], forceBuild)
+		doBuild(args[1], forceBuild)
 	},
 }
 
@@ -473,6 +560,33 @@ var sealCmd = &cobra.Command{
 	},
 }
 
+var orgCmd = &cobra.Command{
+	Use:  "org [add] [short name] [long name] [org-number]",
+	Args: cobra.ExactArgs(4),
+	Run: func(cmd *cobra.Command, args []string) {
+		cwd, _ := os.Getwd()
+		if args[0] == "add" {
+			createOrgTemplate(cwd, args[1], args[2], args[3])
+		}
+	},
+	Example: "doctl org add SVDK \"Södra västerbottens domarklubb\" 802000-1234",
+	Short:   "Adds a new organization",
+}
+
+var initCmd = &cobra.Command{
+	Use: "init",
+	Run: func(cmd *cobra.Command, args []string) {
+		cwd, _ := os.Getwd()
+		toolingDir := filepath.Join(cwd, ".tooling")
+		err := firstTimeRun(toolingDir, cwd)
+		if err != nil {
+			_ = fmt.Errorf("Error occured while initializing tooling: %v", err)
+			os.Exit(1)
+		}
+	},
+	Short: "Use for initialization of directory",
+}
+
 func main() {
 	sealCmd.Flags().StringP("key", "k", "", "GPG Key")
 	sealCmd.MarkFlagRequired("key")
@@ -481,7 +595,7 @@ func main() {
 
 	// Init behövs inte längre via argument nu när TUI ritar upp miljön så bra,
 	// men vi behåller rootCmd för gränssnittet.
-	rootCmd.AddCommand(buildCmd, sealCmd)
+	rootCmd.AddCommand(buildCmd, sealCmd, initCmd, orgCmd)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
@@ -587,7 +701,7 @@ func runSettingsFlow() {
 				continue
 			}
 
-			cfg.Foreningar[nyID] = Forening{Namn: nyNamn, OrgNummer: nyOrgNr, Organ: []string{"styrelsen", "årsmöte"}}
+			cfg.Foreningar[nyID] = Association{Name: nyNamn, OrgNummer: nyOrgNr, Body: []string{"styrelsen", "årsmöte"}}
 			saveConfig(cwd, cfg)
 			createOrgTemplate(cwd, nyID, nyNamn, nyOrgNr)
 
@@ -609,7 +723,7 @@ func runSettingsFlow() {
 			}
 
 			f := cfg.Foreningar[valdOrg]
-			nyNamn := f.Namn
+			nyNamn := f.Name
 			nyOrgNr := f.OrgNummer
 
 			err = runForm(huh.NewForm(
@@ -621,7 +735,7 @@ func runSettingsFlow() {
 			if err != nil {
 				continue
 			}
-			f.Namn = nyNamn
+			f.Name = nyNamn
 			f.OrgNummer = nyOrgNr
 			cfg.Foreningar[valdOrg] = f
 			saveConfig(cwd, cfg)
@@ -642,7 +756,82 @@ func runSettingsFlow() {
 	}
 }
 
-func runInitFlow() {
+func createProtokoll(cwd string, orgId string, body string, date string) error {
+	cfg := loadConfig(cwd)
+
+	currentOrg := cfg.Foreningar[orgId]
+
+	// Check if body exists otherwise create new
+
+	if !slices.Contains(currentOrg.Body, body) {
+		currentOrg.Body = append(currentOrg.Body, body)
+		cfg.Foreningar[orgId] = currentOrg
+		saveConfig(cwd, cfg)
+	}
+
+	if len(date) < 4 {
+		return fmt.Errorf("date is too short")
+	}
+	year := date[:4]
+	basePath := filepath.Join(cwd, orgId, "Årsakter", year, body, date, "källor")
+	mdPath := filepath.Join(basePath, "protokoll.md")
+	standardText := fmt.Sprintf("---\ntyp: protokoll\ntitle: Protokoll %s\ndatum: %s\ntid: 18:00\nplats: Föreningslokalen\nordforande: Namn Namnsson\nsekreterare: Namn Namnsson\njusterare:\n  - Justerare 1\n---\n\n## Mötets öppnande\n", body, date)
+
+	err := os.MkdirAll(filepath.Join(basePath, "bilagor"), os.ModePerm)
+	if err != nil {
+		return fmt.Errorf("could not create directories")
+	}
+	f, err := os.Create(filepath.Join(mdPath))
+	if err != nil {
+		return fmt.Errorf("could not create markdown file")
+	}
+
+	defer func(f *os.File) {
+		_ = f.Close()
+	}(f)
+
+	_, err = f.WriteString(standardText)
+	if err != nil {
+		return fmt.Errorf("could not write to file")
+	}
+
+	return nil
+}
+
+func createGuidanceDocuments(cwd string, orgId string, subcatergory string, docName string) error {
+
+	// needs to be more safe
+	safeCategory := strings.ReplaceAll(subcatergory, " ", "-")
+	safeDocName := strings.ReplaceAll(docName, " ", "-")
+	ymlCategory := strings.ToLower(subcatergory)
+
+	standardText := fmt.Sprintf("---\ntyp: %s\ntitle: %s\nversion: 1.0\nantagen: ÅÅÅÅ-MM-DD av Styrelsen\n---\n\n## 1. Syfte\nSyftet med detta dokument är...\n", ymlCategory, docName)
+
+	basePath := filepath.Join(cwd, orgId, "Grundakter", "Styrdokument")
+	mdPath := filepath.Join(basePath, safeCategory, safeDocName, "källor", "document.md")
+
+	if err := os.MkdirAll(filepath.Join(basePath, safeCategory, safeDocName, "källor"), os.ModePerm); err != nil {
+		return fmt.Errorf("Could create folders")
+	}
+
+	f, err := os.Create(mdPath)
+	if err != nil {
+		return fmt.Errorf("could not create markdown file")
+	}
+	defer func(f *os.File) {
+		_ = f.Close()
+	}(f)
+
+	if _, err := f.WriteString(standardText); err != nil {
+		return fmt.Errorf("could not write to file")
+	}
+
+	return nil
+}
+
+//func createOtherGoverningDocument
+
+func runInitFlow() error {
 	cwd, _ := os.Getwd()
 	cfg := loadConfig(cwd)
 	var valdOrg, dokTyp, datum, organ, dokNamn string
@@ -650,12 +839,12 @@ func runInitFlow() {
 	// 1. VÄLJ FÖRENING
 	orgOptions := []huh.Option[string]{}
 	for key, f := range cfg.Foreningar {
-		orgOptions = append(orgOptions, huh.NewOption(fmt.Sprintf("%s (%s)", key, f.Namn), key))
+		orgOptions = append(orgOptions, huh.NewOption(fmt.Sprintf("%s (%s)", key, f.Name), key))
 	}
 	orgOptions = append(orgOptions, huh.NewOption("➕ Lägg till ny förening...", "_NEW_ORG"))
 
 	if askSelect("Vilken förening?", orgOptions, &valdOrg) != nil {
-		return
+		return nil
 	} // ESC
 
 	if valdOrg == "_NEW_ORG" {
@@ -668,10 +857,8 @@ func runInitFlow() {
 			),
 		))
 		if err != nil || nyID == "" {
-			return
+			return nil
 		}
-		cfg.Foreningar[nyID] = Forening{Namn: nyNamn, OrgNummer: nyOrgNr, Organ: []string{"styrelsen", "årsmöte"}}
-		saveConfig(cwd, cfg)
 
 		createOrgTemplate(cwd, nyID, nyNamn, nyOrgNr)
 		valdOrg = nyID
@@ -686,42 +873,48 @@ func runInitFlow() {
 		huh.NewOption("🤝 Avtal (Grundakter)", "avtal"),
 	}
 	if askSelect("Vad vill du skapa?", huvudKategoriOptions, &dokTyp) != nil {
-		return
+		return nil
 	}
 
-	var basePath, mdPath, mallText string
+	var basePath, mdPath string
 
 	// 3. LOGIK BASERAT PÅ VALD KATEGORI
 	switch dokTyp {
 	case "protokoll":
 		aktuellFörening := cfg.Foreningar[valdOrg]
 		organOptions := []huh.Option[string]{}
-		for _, o := range aktuellFörening.Organ {
+		for _, o := range aktuellFörening.Body {
 			organOptions = append(organOptions, huh.NewOption(o, o))
 		}
 		organOptions = append(organOptions, huh.NewOption("➕ Nytt organ...", "_NEW_ORGAN"))
 		if askSelect("Vilket organ?", organOptions, &organ) != nil {
-			return
+			return nil
 		}
 
 		if organ == "_NEW_ORGAN" {
 			if askInput("Organets namn (t.ex. festkommitté):", &organ) != nil || organ == "" {
-				return
+				return nil
 			}
-			aktuellFörening.Organ = append(aktuellFörening.Organ, organ)
+			aktuellFörening.Body = append(aktuellFörening.Body, organ)
 			cfg.Foreningar[valdOrg] = aktuellFörening
 			saveConfig(cwd, cfg)
 		}
 		if askInput("Datum (ÅÅÅÅ-MM-DD):", &datum) != nil || len(datum) < 4 {
-			return
+			return nil
 		}
 
-		ar := datum[:4]
-		basePath = filepath.Join(cwd, valdOrg, "Årsakter", ar, organ, datum, "källor")
-		mdPath = filepath.Join(basePath, "protokoll.md")
-		mallText = fmt.Sprintf("---\ntyp: protokoll\ntitle: Protokoll %s\ndatum: %s\ntid: 18:00\nplats: Föreningslokalen\nordforande: Namn Namnsson\nsekreterare: Namn Namnsson\njusterare:\n  - Justerare 1\n---\n\n## Mötets öppnande\n", organ, datum)
+		err := createProtokoll(cwd, valdOrg, organ, datum)
+		if err != nil {
+			return err
+		}
+
+		//ar := datum[:4]
+		//basePath = filepath.Join(cwd, valdOrg, "Årsakter", ar, organ, datum, "källor")
+		//mdPath = filepath.Join(basePath, "protokoll.md")
+		//mallText = fmt.Sprintf("---\ntyp: protokoll\ntitle: Protokoll %s\ndatum: %s\ntid: 18:00\nplats: Föreningslokalen\nordforande: Namn Namnsson\nsekreterare: Namn Namnsson\njusterare:\n  - Justerare 1\n---\n\n## Mötets öppnande\n", organ, datum)
 
 	case "styrdokument":
+
 		// SKANNA EFTER BEFINTLIGA KATEGORIER: Leta i Grundakter/Styrdokument/
 		underkatPath := filepath.Join(cwd, valdOrg, "Grundakter", "Styrdokument")
 		var subKategori string
@@ -738,21 +931,27 @@ func runInitFlow() {
 		kategoriOptions = append(kategoriOptions, huh.NewOption("➕ Skapa ny kategori...", "_NEW_KAT"))
 
 		if askSelect("Vilken typ av styrdokument?", kategoriOptions, &subKategori) != nil {
-			return
+			return nil
 		}
 
 		if subKategori == "_NEW_KAT" {
 			if askInput("Kategorins namn (t.ex. Policy, Reglemente, Stadgar):", &subKategori) != nil || subKategori == "" {
-				return
+				return nil
 			}
 			// Ersätt ev. mellanslag så att den är säker för mappar
 			subKategori = strings.ReplaceAll(subKategori, " ", "_")
 		}
 
 		if askInput("Dokumentets/Filens namn (t.ex. IT-policy):", &dokNamn) != nil || dokNamn == "" {
-			return
+			return nil
 		}
-		mappNamn := strings.ReplaceAll(dokNamn, " ", "_")
+
+		err = createGuidanceDocuments(cwd, valdOrg, subKategori, dokNamn)
+		if err != nil {
+			return err
+		}
+
+	/*	mappNamn := strings.ReplaceAll(dokNamn, " ", "_")
 
 		// Bygg vägen: Grundakter/Styrdokument/Policy/IT-policy/källor/
 		basePath = filepath.Join(underkatPath, subKategori, mappNamn, "källor")
@@ -761,25 +960,26 @@ func runInitFlow() {
 		// Formatera filen snyggt beroende på kategori, men sätt styrdokument som fall-back!
 		ymlKategori := strings.ToLower(subKategori)
 		mallText = fmt.Sprintf("---\ntyp: %s\ntitle: %s\nversion: 1.0\nantagen: ÅÅÅÅ-MM-DD av Styrelsen\n---\n\n## 1. Syfte\nSyftet med detta dokument är...\n", ymlKategori, dokNamn)
-
+	*/
 	case "avtal":
 		if askInput("Kort namn på avtalet (t.ex. Hyreskontrakt_Lokal):", &dokNamn) != nil || dokNamn == "" {
-			return
+			return nil
 		}
 		mappNamn := strings.ReplaceAll(dokNamn, " ", "_")
 		basePath = filepath.Join(cwd, valdOrg, "Grundakter", "Avtal", mappNamn, "källor")
 		mdPath = filepath.Join(basePath, "avtal.md")
-		mallText = fmt.Sprintf("---\ntyp: avtal\ntitle: %s\ndatum: %s\nparter:\n  - Föreningen\n  - Motparten AB\n---\n\n## 1. Avtalsobjekt\nDetta avtal avser...\n", dokNamn, time.Now().Format("2006-01-02"))
+		//mallText = fmt.Sprintf("---\ntyp: avtal\ntitle: %s\ndatum: %s\nparter:\n  - Föreningen\n  - Motparten AB\n---\n\n## 1. Avtalsobjekt\nDetta avtal avser...\n", dokNamn, time.Now().Format("2006-01-02"))
 	}
 
 	// SKAPA MAPPAR OCH FIL
-	os.MkdirAll(filepath.Join(basePath, "bilagor"), 0o755)
-	f, _ := os.Create(mdPath)
-	f.WriteString(mallText)
-	f.Close()
+	//os.MkdirAll(filepath.Join(basePath, "bilagor"), 0o755)
+	//f, _ := os.Create(mdPath)
+	//f.WriteString(mallText)
+	//f.Close()
 
 	fmt.Printf("\n✅ Succé! Skapade dokument för %s.\n📂 Sökväg: %s\n", valdOrg, mdPath)
 	pausePrompt()
+	return nil
 }
 
 func runActionFlow(action string) {
@@ -846,7 +1046,7 @@ func runActionFlow(action string) {
 			}
 			force = true
 		}
-		doBuild(valdOrg, valdKalla, force)
+		doBuild(valdKalla, force)
 		pausePrompt()
 
 	} else if action == "seal" {
