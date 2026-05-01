@@ -5,6 +5,7 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/sha256"
+	"docctl/internal/app"
 	"embed"
 	"encoding/hex"
 	"fmt"
@@ -15,79 +16,16 @@ import (
 	"slices"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea" // <--- NY!
 	"github.com/charmbracelet/huh"
 	"github.com/spf13/cobra"
-	"gopkg.in/yaml.v3"
 )
 
 //go:embed embeds
 
 var embeddedFiles embed.FS
-
-var configMutex sync.Mutex
-
-// Config ============================================
-// DATAMODELLER FÖR CONFIG
-// ============================================
-type Config struct {
-	Foreningar map[string]Association `yaml:"foreningar"`
-	Settings   Settings               `yaml:"settings"`
-}
-
-type Association struct {
-	Name      string   `yaml:"namn"`
-	OrgNummer string   `yaml:"org_nummer"`
-	Body      []string `yaml:"organ"`
-}
-
-type Settings struct {
-	CreateZIP         bool `yaml:"create_zip"`
-	UseOpenTimeStamps bool `yaml:"use_open_time_stamps"`
-}
-
-func loadConfig(projRoot string) (Config, error) {
-	configMutex.Lock()
-	defer configMutex.Unlock()
-
-	configPath := filepath.Join(projRoot, ".tooling", "config.yaml")
-	var cfg Config
-
-	data, err := os.ReadFile(configPath)
-	if err != nil {
-		cfg = Config{
-			Foreningar: map[string]Association{},
-			Settings:   Settings{CreateZIP: true, UseOpenTimeStamps: false},
-		}
-		if err := saveConfigLocked(projRoot, cfg); err != nil {
-			return cfg, err
-		}
-		return cfg, nil
-	}
-	_ = yaml.Unmarshal(data, &cfg)
-	return cfg, nil
-}
-
-func saveConfig(projRoot string, cfg Config) error {
-	configMutex.Lock()
-	defer configMutex.Unlock()
-	return saveConfigLocked(projRoot, cfg)
-}
-
-func saveConfigLocked(projRoot string, cfg Config) error {
-	configPath := filepath.Join(projRoot, ".tooling", "config.yaml")
-	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return fmt.Errorf("could not make configpath: %w", err)
-	}
-	data, _ := yaml.Marshal(&cfg)
-	if err := os.WriteFile(configPath, data, 0o644); err != nil {
-		return fmt.Errorf("could not write config: %w", err)
-	}
-	return nil
-}
 
 // ============================================
 // HJÄLPFUNKTIONER
@@ -129,7 +67,7 @@ func hashFile(filePath string) (string, error) {
 }
 
 func createOrgTemplate(projRoot, orgID, orgNamn, orgNummer string) error {
-	cfg, err := loadConfig(projRoot)
+	cfg, err := app.LoadConfig(projRoot)
 	if err != nil {
 		return err
 	}
@@ -150,8 +88,8 @@ func createOrgTemplate(projRoot, orgID, orgNamn, orgNummer string) error {
 			content = strings.ReplaceAll(content, "{{ORG_NAMN}}", orgNamn)
 			content = strings.ReplaceAll(content, "{{ORG_NUMMER}}", orgNummer)
 
-			cfg.Foreningar[orgID] = Association{Name: orgNamn, OrgNummer: orgNummer, Body: []string{"styrelsen", "årsmöte"}}
-			if err := saveConfig(cwd, cfg); err != nil {
+			cfg.Foreningar[orgID] = app.Association{Name: orgNamn, OrgNummer: orgNummer, Body: []string{"styrelsen", "årsmöte"}}
+			if err := app.SaveConfig(cwd, cfg); err != nil {
 				return err
 			}
 
@@ -569,7 +507,7 @@ func doSeal(kallorPath string, key string, force bool) (err error) {
 	}
 
 	if projRoot != "" {
-		cfg, err := loadConfig(projRoot)
+		cfg, err := app.LoadConfig(projRoot)
 		if err != nil {
 			return err
 		}
@@ -586,7 +524,7 @@ func doSeal(kallorPath string, key string, force bool) (err error) {
 		}
 	}
 
-	cfg, err := loadConfig(projRoot)
+	cfg, err := app.LoadConfig(projRoot)
 	if err != nil {
 		return err
 	}
@@ -775,7 +713,7 @@ func startTUI() {
 func runSettingsFlow() {
 	for {
 		cwd, _ := os.Getwd()
-		cfg, _ := loadConfig(cwd)
+		cfg, _ := app.LoadConfig(cwd)
 		var valdAction string
 
 		options := []huh.Option[string]{
@@ -806,8 +744,8 @@ func runSettingsFlow() {
 				continue
 			}
 
-			cfg.Foreningar[nyID] = Association{Name: nyNamn, OrgNummer: nyOrgNr, Body: []string{"styrelsen", "årsmöte"}}
-			if err := saveConfig(cwd, cfg); err != nil {
+			cfg.Foreningar[nyID] = app.Association{Name: nyNamn, OrgNummer: nyOrgNr, Body: []string{"styrelsen", "årsmöte"}}
+			if err := app.SaveConfig(cwd, cfg); err != nil {
 				fmt.Println("Error occured while saving config")
 				pausePrompt()
 				return
@@ -851,7 +789,7 @@ func runSettingsFlow() {
 			f.Name = nyNamn
 			f.OrgNummer = nyOrgNr
 			cfg.Foreningar[valdOrg] = f
-			if err := saveConfig(cwd, cfg); err != nil {
+			if err := app.SaveConfig(cwd, cfg); err != nil {
 				fmt.Printf("Error occurred while saving config %v\n", err)
 			}
 			fmt.Println("✅ Ändringarna sparade!")
@@ -864,7 +802,7 @@ func runSettingsFlow() {
 			}
 
 			cfg.Settings.CreateZIP = sysZip
-			if err := saveConfig(cwd, cfg); err != nil {
+			if err := app.SaveConfig(cwd, cfg); err != nil {
 				fmt.Printf("Error occurred while saving config %v\n", err)
 			}
 			fmt.Println("✅ Inställningen sparad!")
@@ -877,7 +815,7 @@ func runSettingsFlow() {
 			}
 
 			cfg.Settings.UseOpenTimeStamps = sysOts
-			err := saveConfig(cwd, cfg)
+			err := app.SaveConfig(cwd, cfg)
 			if err != nil {
 				fmt.Println("KUNDE INTE SPARA INSTÄLLNINGEN")
 				pausePrompt()
@@ -891,7 +829,7 @@ func runSettingsFlow() {
 }
 
 func createProtokoll(cwd string, orgId string, body string, date string) error {
-	cfg, _ := loadConfig(cwd)
+	cfg, _ := app.LoadConfig(cwd)
 
 	currentOrg := cfg.Foreningar[orgId]
 
@@ -900,7 +838,7 @@ func createProtokoll(cwd string, orgId string, body string, date string) error {
 	if !slices.Contains(currentOrg.Body, body) {
 		currentOrg.Body = append(currentOrg.Body, body)
 		cfg.Foreningar[orgId] = currentOrg
-		if err := saveConfig(cwd, cfg); err != nil {
+		if err := app.SaveConfig(cwd, cfg); err != nil {
 			return err
 		}
 	}
@@ -969,7 +907,7 @@ func createGuidanceDocuments(cwd string, orgId string, subcategory string, docNa
 
 func runInitFlow() error {
 	cwd, _ := os.Getwd()
-	cfg, _ := loadConfig(cwd)
+	cfg, _ := app.LoadConfig(cwd)
 	var valdOrg, dokTyp, datum, organ, dokNamn string
 
 	// 1. VÄLJ FÖRENING
@@ -1035,7 +973,7 @@ func runInitFlow() error {
 			}
 			currentAssociation.Body = append(currentAssociation.Body, organ)
 			cfg.Foreningar[valdOrg] = currentAssociation
-			if err := saveConfig(cwd, cfg); err != nil {
+			if err := app.SaveConfig(cwd, cfg); err != nil {
 				return err
 			}
 		}
@@ -1124,7 +1062,7 @@ func runInitFlow() error {
 
 func runActionFlow(action string) {
 	cwd, _ := os.Getwd()
-	cfg, _ := loadConfig(cwd)
+	cfg, _ := app.LoadConfig(cwd)
 	var valdOrg string
 
 	var orgOptions []huh.Option[string]
