@@ -769,6 +769,7 @@ func runSettingsFlow() {
 			huh.NewOption("➕ Lägg till ny förening", "ny_org"),
 			huh.NewOption("✏️ Redigera befintlig förening", "redigera_org"),
 			huh.NewOption("📦 Hantera ZIP-arkivering (AIP)", "toggle_zip"),
+			huh.NewOption("🕑 Hantera Opentimestamps", "toggle_ots"),
 			huh.NewOption("⬅️ Tillbaka till Huvudmenyn", "back"),
 		}
 
@@ -843,6 +844,23 @@ func runSettingsFlow() {
 			saveConfig(cwd, cfg)
 			fmt.Println("✅ Inställningen sparad!")
 			pausePrompt()
+
+		case "toggle_ots":
+			sysOts := cfg.Settings.UseOpenTimeStamps
+			if askConfirm(fmt.Sprintf("Skapa timestamp med OpenTimeStamp (Nu: %v)", sysOts), &sysOts) != nil {
+				continue
+			}
+
+			cfg.Settings.UseOpenTimeStamps = sysOts
+			err := saveConfig(cwd, cfg)
+			if err != nil {
+				fmt.Println("KUNDE INTE SPARA INSTÄLLNINGEN")
+				pausePrompt()
+			} else {
+				fmt.Println("✅ Inställningen sparad!")
+				pausePrompt()
+			}
+
 		}
 	}
 }
