@@ -62,7 +62,7 @@ func loadConfig(projRoot string) (Config, error) {
 			Foreningar: map[string]Association{},
 			Settings:   Settings{CreateZIP: true, UseOpenTimeStamps: false},
 		}
-		if err := saveConfig(projRoot, cfg); err != nil {
+		if err := saveConfigLocked(projRoot, cfg); err != nil {
 			return cfg, err
 		}
 		return cfg, nil
@@ -74,14 +74,17 @@ func loadConfig(projRoot string) (Config, error) {
 func saveConfig(projRoot string, cfg Config) error {
 	configMutex.Lock()
 	defer configMutex.Unlock()
+	return saveConfigLocked(projRoot, cfg)
+}
 
+func saveConfigLocked(projRoot string, cfg Config) error {
 	configPath := filepath.Join(projRoot, ".tooling", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return fmt.Errorf("could not make configpath: %v", err)
+		return fmt.Errorf("could not make configpath: %w", err)
 	}
 	data, _ := yaml.Marshal(&cfg)
 	if err := os.WriteFile(configPath, data, 0o644); err != nil {
-		return fmt.Errorf("could not write config: %v", err)
+		return fmt.Errorf("could not write config: %w", err)
 	}
 	return nil
 }
@@ -345,6 +348,9 @@ Thumbs.db
 // LOGIK MOTOR (doBuild & doSeal)
 // ============================================
 
+// doBuild generates document in multiple formats (PDF, HTML, DOCX)
+// from source files in pathToSources.
+// force: forces the rebuilding of the documents even if the archive is Sealed
 func doBuild(pathToSources string, force bool) (err error) {
 	kallorDir, _ := filepath.Abs(pathToSources)
 	motesDir := filepath.Dir(kallorDir)
