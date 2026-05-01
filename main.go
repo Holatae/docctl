@@ -27,7 +27,7 @@ import (
 
 var embeddedFiles embed.FS
 
-// ============================================
+// Config ============================================
 // DATAMODELLER FÖR CONFIG
 // ============================================
 type Config struct {
@@ -68,11 +68,11 @@ func loadConfig(projRoot string) (Config, error) {
 func saveConfig(projRoot string, cfg Config) error {
 	configPath := filepath.Join(projRoot, ".tooling", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
-		return fmt.Errorf("Could not make configpath: %v", err)
+		return fmt.Errorf("could not make configpath: %v", err)
 	}
 	data, _ := yaml.Marshal(&cfg)
 	if err := os.WriteFile(configPath, data, 0o644); err != nil {
-		return fmt.Errorf("Could not write config: %v", err)
+		return fmt.Errorf("could not write config: %v", err)
 	}
 	return nil
 }
@@ -378,7 +378,7 @@ func doBuild(pathToSources string, force bool) (err error) {
 	// Räkna ut Orgname
 	relPath, err := filepath.Rel(projRoot, kallorDir)
 	if err != nil {
-		return fmt.Errorf("Couldn't get relative path of kallor: %v", err)
+		return fmt.Errorf("couldn't get relative path of kallor: %v", err)
 	}
 
 	orgName := strings.Split(relPath, string(filepath.Separator))[0]
@@ -523,7 +523,7 @@ func doSeal(kallorPath string, key string, force bool) (err error) {
 		line := fmt.Sprintf("- `%s` (SHA-256: `%s`)\n", relPath, hashStr)
 
 		if _, err := f.WriteString(line); err != nil {
-			return fmt.Errorf("Failed to write to file")
+			return fmt.Errorf("failed to write to file")
 		}
 	}
 	_ = f.Close()
@@ -671,7 +671,7 @@ var initCmd = &cobra.Command{
 		toolingDir := filepath.Join(cwd, ".tooling")
 		err := firstTimeRun(toolingDir, cwd)
 		if err != nil {
-			_ = fmt.Errorf("Error occured while initializing tooling: %v", err)
+			_ = fmt.Errorf("error occurred while initializing tooling: %v", err)
 			os.Exit(1)
 		}
 	},
@@ -809,7 +809,7 @@ func runSettingsFlow() {
 			pausePrompt() // <---- Skaparen får en chans att läsa detta innan menyn tar över skärmen igen
 
 		case "redigera_org":
-			orgOptions := []huh.Option[string]{}
+			var orgOptions []huh.Option[string]
 			for key := range cfg.Foreningar {
 				orgOptions = append(orgOptions, huh.NewOption(key, key))
 			}
@@ -921,12 +921,12 @@ func createProtokoll(cwd string, orgId string, body string, date string) error {
 	return nil
 }
 
-func createGuidanceDocuments(cwd string, orgId string, subcatergory string, docName string) error {
+func createGuidanceDocuments(cwd string, orgId string, subcategory string, docName string) error {
 
 	// needs to be more safe
-	safeCategory := strings.ReplaceAll(subcatergory, " ", "-")
+	safeCategory := strings.ReplaceAll(subcategory, " ", "-")
 	safeDocName := strings.ReplaceAll(docName, " ", "-")
-	ymlCategory := strings.ToLower(subcatergory)
+	ymlCategory := strings.ToLower(subcategory)
 
 	standardText := fmt.Sprintf("---\ntyp: %s\ntitle: %s\nversion: 1.0\nantagen: ÅÅÅÅ-MM-DD av Styrelsen\n---\n\n## 1. Syfte\nSyftet med detta dokument är...\n", ymlCategory, docName)
 
@@ -934,7 +934,7 @@ func createGuidanceDocuments(cwd string, orgId string, subcatergory string, docN
 	mdPath := filepath.Join(basePath, safeCategory, safeDocName, "källor", "document.md")
 
 	if err := os.MkdirAll(filepath.Join(basePath, safeCategory, safeDocName, "källor"), os.ModePerm); err != nil {
-		return fmt.Errorf("Could create folders")
+		return fmt.Errorf("could create folders")
 	}
 
 	f, err := os.Create(mdPath)
@@ -960,7 +960,7 @@ func runInitFlow() error {
 	var valdOrg, dokTyp, datum, organ, dokNamn string
 
 	// 1. VÄLJ FÖRENING
-	orgOptions := []huh.Option[string]{}
+	var orgOptions []huh.Option[string]
 	for key, f := range cfg.Foreningar {
 		orgOptions = append(orgOptions, huh.NewOption(fmt.Sprintf("%s (%s)", key, f.Name), key))
 	}
@@ -1007,7 +1007,7 @@ func runInitFlow() error {
 	switch dokTyp {
 	case "protokoll":
 		currentAssociation := cfg.Foreningar[valdOrg]
-		organOptions := []huh.Option[string]{}
+		var organOptions []huh.Option[string]
 		for _, o := range currentAssociation.Body {
 			organOptions = append(organOptions, huh.NewOption(o, o))
 		}
@@ -1046,7 +1046,7 @@ func runInitFlow() error {
 		underkatPath := filepath.Join(cwd, valdOrg, "Grundakter", "Styrdokument")
 		var subKategori string
 
-		kategoriOptions := []huh.Option[string]{}
+		var kategoriOptions []huh.Option[string]
 		entries, err := os.ReadDir(underkatPath)
 		if err == nil {
 			for _, e := range entries {
@@ -1114,7 +1114,7 @@ func runActionFlow(action string) {
 	cfg, _ := loadConfig(cwd)
 	var valdOrg string
 
-	orgOptions := []huh.Option[string]{}
+	var orgOptions []huh.Option[string]
 	for key := range cfg.Foreningar {
 		orgOptions = append(orgOptions, huh.NewOption(key, key))
 	}
