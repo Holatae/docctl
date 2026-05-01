@@ -15,6 +15,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea" // <--- NY!
@@ -26,6 +27,8 @@ import (
 //go:embed embeds
 
 var embeddedFiles embed.FS
+
+var configMutex sync.Mutex
 
 // Config ============================================
 // DATAMODELLER FÖR CONFIG
@@ -47,6 +50,9 @@ type Settings struct {
 }
 
 func loadConfig(projRoot string) (Config, error) {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+
 	configPath := filepath.Join(projRoot, ".tooling", "config.yaml")
 	var cfg Config
 
@@ -66,6 +72,9 @@ func loadConfig(projRoot string) (Config, error) {
 }
 
 func saveConfig(projRoot string, cfg Config) error {
+	configMutex.Lock()
+	defer configMutex.Unlock()
+
 	configPath := filepath.Join(projRoot, ".tooling", "config.yaml")
 	if err := os.MkdirAll(filepath.Dir(configPath), 0o755); err != nil {
 		return fmt.Errorf("could not make configpath: %v", err)
@@ -344,20 +353,19 @@ func doBuild(pathToSources string, force bool) (err error) {
 
 	if _, err := os.Stat(sigPath); err == nil {
 		if !force {
-			fmt.Println("❌ AVSLAGET: Arkivet är förseglat! Använd --force för att skriva över.")
-			os.Exit(1)
+			return fmt.Errorf("❌ AVSLAGET: Arkivet är förseglat! Använd --force för att skriva över")
 		}
 
 		fmt.Println("⚠️ FORCE aktivt: Raderar gamla manifest och signaturer...")
 
 		// Scarryy. Please don't do same as steam
 		if err := os.RemoveAll(arkivDir); err != nil {
-			return fmt.Errorf("could not remove arkiv directory: %v", err)
+			return fmt.Errorf("could not remove arkiv directory: %w", err)
 		}
 	}
 
 	if err := os.MkdirAll(arkivDir, 0o755); err != nil {
-		return fmt.Errorf("could not create arkiv directory: %v", err)
+		return fmt.Errorf("could not create arkiv directory: %w", err)
 	}
 
 	curr := kallorDir
@@ -369,8 +377,7 @@ func doBuild(pathToSources string, force bool) (err error) {
 		}
 		parent := filepath.Dir(curr)
 		if parent == curr {
-			fmt.Println("❌ Hittade inte rot-mappen (.tooling)!")
-			os.Exit(1)
+			return fmt.Errorf("❌ Hittade inte rot-mappen (.tooling)!")
 		}
 		curr = parent
 	}
@@ -397,7 +404,7 @@ func doBuild(pathToSources string, force bool) (err error) {
 	}
 
 	if mdFile == "" {
-		return fmt.Errorf("found no .md-file in källor ")
+		return fmt.Errorf("found no .md-file in \"källor\" ")
 	}
 
 	// 1. Kolla att mallen faktiskt finns!
