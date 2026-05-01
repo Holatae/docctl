@@ -465,10 +465,14 @@ func doSeal(kallorPath string, key string, force bool) (err error) {
 
 	fmt.Println("🔒 Förseglar arkivet...")
 	fmt.Println("   -> Exporterar signeringsnyckel (Public Key)...")
-	err = os.Remove(pubKeyPath)
-	if err != nil {
-		return fmt.Errorf("could not remove public key: %w", err)
+
+	if _, err := os.Stat(pubKeyPath); !os.IsNotExist(err) {
+		err = os.Remove(pubKeyPath)
+		if err != nil {
+			return fmt.Errorf("could not remove public key: %w", err)
+		}
 	}
+
 	err = runCmd("gpg", "--armor", "--export", "--output", pubKeyPath, key)
 	if err != nil {
 		return fmt.Errorf("could not armor signeringsnyckel: %w", err)
@@ -509,11 +513,11 @@ func doSeal(kallorPath string, key string, force bool) (err error) {
 	for _, file := range files {
 		relPath, err := filepath.Rel(arkivDir, file)
 		if err != nil {
-			return fmt.Errorf("Failed to calculate relative path")
+			return fmt.Errorf("failed to calculate relative path")
 		}
 		hashStr, err := hashFile(file)
 		if err != nil {
-			return fmt.Errorf("Failed to calculate hash")
+			return fmt.Errorf("failed to calculate hash")
 		}
 
 		line := fmt.Sprintf("- `%s` (SHA-256: `%s`)\n", relPath, hashStr)
@@ -524,10 +528,13 @@ func doSeal(kallorPath string, key string, force bool) (err error) {
 	}
 	_ = f.Close()
 
-	err = os.Remove(sigPath)
-	if err != nil {
-		return fmt.Errorf("could not remove sig file: %w", err)
+	if _, err := os.Stat(sigPath); !os.IsNotExist(err) {
+		err = os.Remove(sigPath)
+		if err != nil {
+			return fmt.Errorf("could not remove sig file: %w", err)
+		}
 	}
+
 	err = runCmd("gpg", "--detach-sign", "--armor", "--local-user", key, "--output", sigPath, manifestPath)
 	if err != nil {
 		return fmt.Errorf("could not armor signeringsnyckel: %w", err)
@@ -571,6 +578,7 @@ func doSeal(kallorPath string, key string, force bool) (err error) {
 		return err
 	}
 
+	// Only for OpenTimeStamps
 	if cfg.Settings.UseOpenTimeStamps {
 		// ============================================
 		// OPENTIMESTAMPS (Tidsstämpling på Blockkedjan)
@@ -1149,7 +1157,9 @@ func runActionFlow(action string) {
 		if askInput("Ange GPG E-post/ID:", &gpgKey) != nil || gpgKey == "" {
 			return
 		}
-		doSeal(valdKalla, gpgKey, force)
+		if err := doSeal(valdKalla, gpgKey, force); err != nil {
+			fmt.Println(err)
+		}
 		pausePrompt()
 	}
 }
