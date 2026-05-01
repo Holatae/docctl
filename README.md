@@ -2,7 +2,7 @@
 
 *(An English version of this README will be added at a later stage.)*
 
-**🤖 Transparens angående kodbasen:** För att nå denna MVP (Version 1.0) har
+**🤖 Transparens angående kodbasen:** För att nå denna MVP har
 artificiell intelligens använts för att generera majoriteten av koden.
 Kärnfokus har legat på att bevisa konceptet, kryptografin och arkitekturen.
 Koden fungerar, men refaktoriseringsbehov finns absolut!
