@@ -1,20 +1,13 @@
 package main
 
 import (
-	"archive/zip"
 	"bufio"
-	"bytes"
-	"crypto/sha256"
 	"docctl/internal/app"
+	"docctl/internal/assets"
 	"embed"
-	"encoding/hex"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -23,157 +16,9 @@ import (
 	"github.com/spf13/cobra"
 )
 
-//go:embed embeds
+//go:embed internal/assets/embeds
 
 var embeddedFiles embed.FS
-
-// ============================================
-// HJÄLPFUNKTIONER
-// ============================================
-
-// runCmd runs a given command in the terminal
-func runCmd(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-
-	// Fånga stderr (felmeddelanden) i en buffer istället för en komplicerad pipe
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-
-	// cmd.Run() utför kommandot och väntar tills det är klart
-	err := cmd.Run()
-	if err != nil {
-		// Baka in stderr i det returnerade felet så att det syns tydligt i terminalen
-		return fmt.Errorf("fel vid körning av %s: %w\nOutput: %s", name, err, stderr.String())
-	}
-
-	return nil
-}
-
-func hashFile(filePath string) (string, error) {
-	f, err := os.Open(filePath)
-	if err != nil {
-		return "", err
-	}
-	defer func() {
-		_ = f.Close()
-	}()
-
-	h := sha256.New()
-
-	if _, err := io.Copy(h, f); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(h.Sum(nil)), nil
-}
-
-func createOrgTemplate(projRoot, orgID, orgNamn, orgNummer string) error {
-	cfg, err := app.LoadConfig(projRoot)
-	if err != nil {
-		return err
-	}
-	cwd, _ := os.Getwd()
-
-	mallDir := filepath.Join(projRoot, orgID, "mallar")
-	if err := os.MkdirAll(mallDir, 0o755); err != nil {
-		return fmt.Errorf("could not make mallar directory: %w", err)
-	}
-	outPath := filepath.Join(mallDir, orgID+".typ")
-
-	// Skapa bara filen om den inte redan finns (så vi inte skriver över egna anpassningar)
-	if _, err := os.Stat(outPath); os.IsNotExist(err) {
-		templateData, err := embeddedFiles.ReadFile("embeds/org_mall_template.typ")
-		if err == nil {
-			content := string(templateData)
-			// Hitta och ersätt våra platshållare!
-			content = strings.ReplaceAll(content, "{{ORG_NAMN}}", orgNamn)
-			content = strings.ReplaceAll(content, "{{ORG_NUMMER}}", orgNummer)
-
-			cfg.Foreningar[orgID] = app.Association{Name: orgNamn, OrgNummer: orgNummer, Body: []string{"styrelsen", "årsmöte"}}
-			if err := app.SaveConfig(cwd, cfg); err != nil {
-				return err
-			}
-
-			if err := os.WriteFile(outPath, []byte(content), 0o644); err != nil {
-				return fmt.Errorf("could not write org_mall_template.typ: %w", err)
-			}
-		} else {
-			fmt.Printf("❌ Kunde inte hitta 'org_mall_template.typ' i embeds: %v\n", err)
-		}
-	}
-	return nil
-}
-
-func copyDir(src string, dst string) error {
-	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		relPath, _ := filepath.Rel(src, path)
-		dstPath := filepath.Join(dst, relPath)
-		if info.IsDir() {
-			return os.MkdirAll(dstPath, info.Mode())
-		}
-		srcFile, _ := os.Open(path)
-		defer func(srcFile *os.File) {
-			_ = srcFile.Close()
-		}(srcFile)
-		dstFile, _ := os.Create(dstPath)
-		defer func(dstFile *os.File) {
-			_ = dstFile.Close()
-		}(dstFile)
-
-		_, err = io.Copy(dstFile, srcFile)
-		if err != nil {
-			return fmt.Errorf("could not copy %s to %s: %w", path, dstPath, err)
-		}
-		return nil
-	})
-}
-
-func createZipArchive(srcDir string, destZip string) error {
-	zipFile, err := os.Create(destZip)
-	if err != nil {
-		return err
-	}
-	defer func(zipFile *os.File) {
-		_ = zipFile.Close()
-	}(zipFile)
-
-	archive := zip.NewWriter(zipFile)
-	defer func(archive *zip.Writer) {
-		_ = archive.Close()
-	}(archive)
-
-	return filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if info.IsDir() {
-			return nil
-		}
-
-		relPath, _ := filepath.Rel(srcDir, path)
-		header, _ := zip.FileInfoHeader(info)
-		header.Name = relPath
-		header.Method = zip.Deflate
-
-		writer, err := archive.CreateHeader(header)
-		if err != nil {
-			return err
-		}
-
-		file, err := os.Open(path)
-		if err != nil {
-			return err
-		}
-		defer func(file *os.File) {
-			_ = file.Close()
-		}(file)
-
-		_, err = io.Copy(writer, file)
-		return err
-	})
-}
 
 // ------------------------------------------
 // PAUSFUNKTIONEN (För att du ska hinna se loggarna)
@@ -214,349 +59,16 @@ func checkFirstRun() error {
 		os.Exit(0)
 	}
 
-	if err := firstTimeRun(toolingDir, cwd); err != nil {
+	if err := app.FirstTimeRun(toolingDir, cwd, embeddedFiles); err != nil {
 		return err
 	}
 	time.Sleep(2 * time.Second)
 	return nil
 }
 
-// firstTimeRun creates all relevant folders and files
-func firstTimeRun(toolingDir string, cwd string) (err error) {
-	fmt.Println("\n🚀 Initierar nytt arbetsutrymme...")
-	fmt.Printf("🕵️ AVSLÖJANDE: firstTimeRun sparar mallar i mappen: %s\n", filepath.Join(toolingDir, "mallar"))
-
-	// 1. Skapa mappar
-	mallarDir := filepath.Join(toolingDir, "mallar")
-	if err := os.MkdirAll(mallarDir, 0o755); err != nil {
-		return fmt.Errorf("could not create mallar directory: %v", err)
-	}
-
-	// 2. Automagisk uppackning: Läs alla filer som bäddades in i "embeds"-mappen!
-	files, err := embeddedFiles.ReadDir("embeds")
-	if err != nil {
-		_ = fmt.Errorf("couldn't read embeds dir: %v", err)
-		return err
-	}
-
-	for _, file := range files {
-		if !file.IsDir() {
-			// Läs filen inifrån binären
-			contains, err := embeddedFiles.ReadFile("embeds/" + file.Name())
-			if err == nil {
-				// Skriv ut den till hårddisken
-				path := filepath.Join(mallarDir, file.Name())
-				if err := os.WriteFile(path, contains, 0o644); err != nil {
-					return fmt.Errorf("cannot write file: %v", err)
-				}
-				fmt.Printf("   -> Packade upp systemmall: %s\n", file.Name())
-			}
-		}
-	}
-
-	// 3. Skapa den perfekta .gitignore-filen
-	gitignore := `# Dolda macOS/Windows-filer
-.DS_Store
-Thumbs.db
-
-# Temporära filer från byggmotorn
-*_temp.typ
-
-# Valfritt: Ignorera tunga leveransformat i Git
-# arkiv/*.pdf
-# arkiv/*.docx
-`
-	if err := os.WriteFile(filepath.Join(cwd, ".gitignore"), []byte(gitignore), 0o644); err != nil {
-		return fmt.Errorf("could not write .gitignore: %v", err)
-	}
-
-	// 4. Initiera Git automatiskt (om git finns installerat)
-	if _, err := exec.LookPath("git"); err == nil {
-		fmt.Println("   -> Sätter upp versionshantering (git init)...")
-		if err := exec.Command("git", "init").Run(); err != nil {
-			return fmt.Errorf("could not git init: %v", err)
-		}
-	}
-
-	fmt.Println("✅ Arbetsutrymme skapat! Du är redo att köra.")
-	return nil
-}
-
 // ============================================
 // LOGIK MOTOR (doBuild & doSeal)
 // ============================================
-
-// doBuild generates document in multiple formats (PDF, HTML, DOCX)
-// from source files in pathToSources.
-// force: forces the rebuilding of the documents even if the archive is Sealed
-func doBuild(pathToSources string, force bool) (err error) {
-	kallorDir, _ := filepath.Abs(pathToSources)
-	motesDir := filepath.Dir(kallorDir)
-	arkivDir := filepath.Join(motesDir, "arkiv")
-	sigPath := filepath.Join(arkivDir, "ATTESTATION.md.sig")
-
-	if _, err := os.Stat(sigPath); err == nil {
-		if !force {
-			return fmt.Errorf("❌ AVSLAGET: Arkivet är förseglat! Använd --force för att skriva över")
-		}
-
-		fmt.Println("⚠️ FORCE aktivt: Raderar gamla manifest och signaturer...")
-
-		// Scarryy. Please don't do same as steam
-		if err := os.RemoveAll(arkivDir); err != nil {
-			return fmt.Errorf("could not remove arkiv directory: %w", err)
-		}
-	}
-
-	if err := os.MkdirAll(arkivDir, 0o755); err != nil {
-		return fmt.Errorf("could not create arkiv directory: %w", err)
-	}
-
-	curr := kallorDir
-	var projRoot string
-	for {
-		if _, err := os.Stat(filepath.Join(curr, ".tooling")); !os.IsNotExist(err) {
-			projRoot = curr
-			break
-		}
-		parent := filepath.Dir(curr)
-		if parent == curr {
-			return fmt.Errorf("❌ Hittade inte rot-mappen (.tooling)!")
-		}
-		curr = parent
-	}
-
-	// Räkna ut Orgname
-	relPath, err := filepath.Rel(projRoot, kallorDir)
-	if err != nil {
-		return fmt.Errorf("couldn't get relative path of kallor: %v", err)
-	}
-
-	orgName := strings.Split(relPath, string(filepath.Separator))[0]
-
-	orgMallPath := filepath.Join(projRoot, orgName, "mallar", orgName+".typ")
-	pandocTemplate := filepath.Join(projRoot, ".tooling", "mallar", "pandoc_klister.typ")
-
-	entries, _ := os.ReadDir(kallorDir)
-	var mdFile, baseName string
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".md") && e.Name() != "ATTESTATION.md" {
-			mdFile = filepath.Join(kallorDir, e.Name())
-			baseName = strings.TrimSuffix(e.Name(), ".md")
-			break
-		}
-	}
-
-	if mdFile == "" {
-		return fmt.Errorf("found no .md-file in \"källor\" ")
-	}
-
-	// 1. Kolla att mallen faktiskt finns!
-	if stat, err := os.Stat(pandocTemplate); os.IsNotExist(err) || stat.Size() == 0 {
-		return fmt.Errorf("❌ KATASTROF: Mallen finns inte på disken (eller är tom)!\nFörväntad sökväg: %s", pandocTemplate)
-	}
-
-	relMallPath, _ := filepath.Rel(arkivDir, orgMallPath)
-	fmt.Printf("🔄 Bygger dokument för %s...\n", orgName)
-
-	tempTypst := filepath.Join(arkivDir, baseName+"_temp.typ")
-	if err := runCmd("pandoc", mdFile, "-t", "typst", "-o", tempTypst, "--template", pandocTemplate, "-V", "org_mall="+relMallPath); err != nil {
-		return fmt.Errorf("pandoc misslyckades %w", err)
-	}
-
-	pdfOut := filepath.Join(arkivDir, baseName+".pdf")
-
-	if err := runCmd("typst", "compile", "--root", projRoot, "--pdf-standard", "a-2b", tempTypst, pdfOut); err != nil {
-		return fmt.Errorf("typst failed to compile: %w", err)
-	}
-
-	_ = os.Remove(tempTypst)
-
-	htmlOut := filepath.Join(arkivDir, baseName+".html")
-	if err := runCmd("pandoc", mdFile, "-o", htmlOut, "--standalone"); err != nil {
-		return fmt.Errorf("pandoc failed to compile (HTML): %w", err)
-	}
-
-	docxOut := filepath.Join(arkivDir, baseName+".docx")
-	if err := runCmd("pandoc", mdFile, "-o", docxOut); err != nil {
-		return fmt.Errorf("pandoc failed to compile (DOCX): %w", err)
-	}
-
-	bilagorSrc := filepath.Join(kallorDir, "bilagor")
-	bilagorDest := filepath.Join(arkivDir, "bilagor")
-	if stat, err := os.Stat(bilagorSrc); err == nil && stat.IsDir() {
-		err := copyDir(bilagorSrc, bilagorDest)
-		if err != nil {
-			return err
-		}
-	}
-
-	fmt.Println("✅ Klart! Output: ", arkivDir)
-
-	return nil
-}
-
-func doSeal(kallorPath string, key string, force bool) (err error) {
-	kallorDir, _ := filepath.Abs(kallorPath)
-	motesDir := filepath.Dir(kallorDir)
-	arkivDir := filepath.Join(motesDir, "arkiv")
-	manifestPath := filepath.Join(arkivDir, "ATTESTATION.md")
-	sigPath := filepath.Join(arkivDir, "ATTESTATION.md.sig")
-	pubKeyPath := filepath.Join(arkivDir, "PUBLIC_KEY.asc")
-
-	if _, err := os.Stat(arkivDir); os.IsNotExist(err) {
-		fmt.Println("❌ Hittar inte arkiv-mappen! Kör 'build' först.")
-		os.Exit(1)
-	}
-
-	if _, err := os.Stat(sigPath); err == nil && !force {
-		fmt.Println("❌ AVSLAGET: Arkivet är redan förseglat! Kör med --force.")
-		os.Exit(1)
-	}
-
-	fmt.Println("🔒 Förseglar arkivet...")
-	fmt.Println("   -> Exporterar signeringsnyckel (Public Key)...")
-
-	if _, err := os.Stat(pubKeyPath); !os.IsNotExist(err) {
-		err = os.Remove(pubKeyPath)
-		if err != nil {
-			return fmt.Errorf("could not remove public key: %w", err)
-		}
-	}
-
-	err = runCmd("gpg", "--armor", "--export", "--output", pubKeyPath, key)
-	if err != nil {
-		return fmt.Errorf("could not armor signeringsnyckel: %w", err)
-	}
-
-	var files []string
-	err = filepath.WalkDir(arkivDir, func(path string, d os.DirEntry, err error) error {
-		if !d.IsDir() && d.Name() != "ATTESTATION.md" && d.Name() != "ATTESTATION.md.sig" {
-			files = append(files, path)
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-	sort.Strings(files)
-
-	f, _ := os.Create(manifestPath)
-	defer func(f *os.File) {
-		_ = f.Close()
-	}(f)
-
-	if _, err := f.WriteString("# Arkivmanifest\n\n"); err != nil {
-		return fmt.Errorf("failed to write manifest: %w", err)
-	}
-	if _, err := f.WriteString(fmt.Sprintf("**Förseglat:** %s\n\n", time.Now().Format("2006-01-02 15:04:05"))); err != nil {
-		return fmt.Errorf("failed to write manifest: %w", err)
-	}
-
-	if _, err := f.WriteString("Undertecknad intygar härmed att nedanstående filer\nuthör det formellt justerade och godkända dokumentet.\n\n"); err != nil {
-		return fmt.Errorf("failed to write manifest: %w", err)
-	}
-
-	if _, err := f.WriteString("### Arkivinnehåll:\n"); err != nil {
-		return fmt.Errorf("failed to write manifest: %w", err)
-	}
-
-	for _, file := range files {
-		relPath, err := filepath.Rel(arkivDir, file)
-		if err != nil {
-			return fmt.Errorf("failed to calculate relative path")
-		}
-		hashStr, err := hashFile(file)
-		if err != nil {
-			return fmt.Errorf("failed to calculate hash")
-		}
-
-		line := fmt.Sprintf("- `%s` (SHA-256: `%s`)\n", relPath, hashStr)
-
-		if _, err := f.WriteString(line); err != nil {
-			return fmt.Errorf("failed to write to file")
-		}
-	}
-	_ = f.Close()
-
-	if _, err := os.Stat(sigPath); !os.IsNotExist(err) {
-		err = os.Remove(sigPath)
-		if err != nil {
-			return fmt.Errorf("could not remove sig file: %w", err)
-		}
-	}
-
-	err = runCmd("gpg", "--detach-sign", "--armor", "--local-user", key, "--output", sigPath, manifestPath)
-	if err != nil {
-		return fmt.Errorf("could not armor signeringsnyckel: %w", err)
-	}
-
-	// Koll om vi ska ZIPPA enligt inställningarna!
-	var projRoot string
-	curr := kallorDir
-	for {
-		if _, err := os.Stat(filepath.Join(curr, ".tooling")); !os.IsNotExist(err) {
-			projRoot = curr
-			break
-		}
-		parent := filepath.Dir(curr)
-		if parent == curr {
-			break
-		}
-		curr = parent
-	}
-
-	if projRoot != "" {
-		cfg, err := app.LoadConfig(projRoot)
-		if err != nil {
-			return err
-		}
-		if cfg.Settings.CreateZIP {
-			fmt.Println("   -> Paketerar AIP (Archival Information Package)...")
-			zipName := filepath.Base(motesDir) + "_Arkivpaket.zip"
-			zipPath := filepath.Join(motesDir, zipName)
-			err := createZipArchive(arkivDir, zipPath)
-			if err != nil {
-				fmt.Println("❌ Misslyckades med att skapa ZIP:", err)
-			} else {
-				fmt.Println("   -> ZIP sparad som:", zipName)
-			}
-		}
-	}
-
-	cfg, err := app.LoadConfig(projRoot)
-	if err != nil {
-		return err
-	}
-
-	// Only for OpenTimeStamps
-	if cfg.Settings.UseOpenTimeStamps {
-		// ============================================
-		// OPENTIMESTAMPS (Tidsstämpling på Blockkedjan)
-		// ============================================
-		fmt.Println("   -> Söker efter OpenTimestamps för oantastligt tidsbevis...")
-
-		// Kolla om 'ots' finns installerat på datorn
-		_, errOTS := exec.LookPath("ots")
-		if errOTS == nil {
-			fmt.Println("   -> 'ots' hittades! Tidsstämplar manifestet mot Bitcoin-nätverket...")
-
-			// Kör kommandot: ots stamp ATTESTATION.md.sig
-			cmdOTS := exec.Command("ots", "stamp", sigPath)
-			if err := cmdOTS.Run(); err != nil {
-				fmt.Println("   ⚠️ Kunde inte nå OTS-servern just nu. Hoppar över tidsstämpel.")
-			} else {
-				fmt.Println("   ✅ Tidsstämpel skapad (.ots-fil sparad i arkivet).")
-			}
-		} else {
-			fmt.Println("   💡 Tips: Installera 'opentimestamps-client' för att få gratis, kryptografiska tidsstämplar!")
-		}
-	}
-
-	fmt.Println("✅ Arkivet är låst och GPG-signerat.")
-
-	return nil
-}
 
 // ============================================
 // CLI KOMMANDON
@@ -577,7 +89,7 @@ var buildCmd = &cobra.Command{
 	Use:  "build [org] [sökväg]",
 	Args: cobra.ExactArgs(2),
 	Run: func(cmd *cobra.Command, args []string) {
-		err := doBuild(args[1], forceBuild)
+		err := app.DoBuild(args[1], forceBuild)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
@@ -590,7 +102,7 @@ var sealCmd = &cobra.Command{
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
 		gpgKey, _ := cmd.Flags().GetString("key")
-		err := doSeal(args[0], gpgKey, forceSeal)
+		err := app.DoSeal(args[0], gpgKey, forceSeal)
 		if err != nil {
 			fmt.Println(err)
 			os.Exit(1)
@@ -604,7 +116,7 @@ var orgCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cwd, _ := os.Getwd()
 		if args[0] == "add" {
-			err := createOrgTemplate(cwd, args[1], args[2], args[3])
+			err := app.CreateOrgTemplate(cwd, args[1], args[2], args[3], embeddedFiles)
 			if err != nil {
 				fmt.Println(err)
 				os.Exit(1)
@@ -620,7 +132,7 @@ var initCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cwd, _ := os.Getwd()
 		toolingDir := filepath.Join(cwd, ".tooling")
-		err := firstTimeRun(toolingDir, cwd)
+		err := app.FirstTimeRun(toolingDir, cwd, assets.Files)
 		if err != nil {
 			_ = fmt.Errorf("error occurred while initializing tooling: %v", err)
 			os.Exit(1)
@@ -750,7 +262,7 @@ func runSettingsFlow() {
 				pausePrompt()
 				return
 			}
-			if err := createOrgTemplate(cwd, nyID, nyNamn, nyOrgNr); err != nil {
+			if err := app.CreateOrgTemplate(cwd, nyID, nyNamn, nyOrgNr, embeddedFiles); err != nil {
 				fmt.Println("Error occured while creating template")
 				pausePrompt()
 				return
@@ -828,50 +340,6 @@ func runSettingsFlow() {
 	}
 }
 
-func createProtokoll(cwd string, orgId string, body string, date string) error {
-	cfg, _ := app.LoadConfig(cwd)
-
-	currentOrg := cfg.Foreningar[orgId]
-
-	// Check if body exists otherwise create new
-
-	if !slices.Contains(currentOrg.Body, body) {
-		currentOrg.Body = append(currentOrg.Body, body)
-		cfg.Foreningar[orgId] = currentOrg
-		if err := app.SaveConfig(cwd, cfg); err != nil {
-			return err
-		}
-	}
-
-	if len(date) < 4 {
-		return fmt.Errorf("date is too short")
-	}
-	year := date[:4]
-	basePath := filepath.Join(cwd, orgId, "Årsakter", year, body, date, "källor")
-	mdPath := filepath.Join(basePath, "protokoll.md")
-	standardText := fmt.Sprintf("---\ntyp: protokoll\ntitle: Protokoll %s\ndatum: %s\ntid: 18:00\nplats: Föreningslokalen\nordforande: Namn Namnsson\nsekreterare: Namn Namnsson\njusterare:\n  - Justerare 1\n---\n\n## Mötets öppnande\n", body, date)
-
-	err := os.MkdirAll(filepath.Join(basePath, "bilagor"), os.ModePerm)
-	if err != nil {
-		return fmt.Errorf("could not create directories")
-	}
-	f, err := os.Create(filepath.Join(mdPath))
-	if err != nil {
-		return fmt.Errorf("could not create markdown file")
-	}
-
-	defer func(f *os.File) {
-		_ = f.Close()
-	}(f)
-
-	_, err = f.WriteString(standardText)
-	if err != nil {
-		return fmt.Errorf("could not write to file")
-	}
-
-	return nil
-}
-
 func createGuidanceDocuments(cwd string, orgId string, subcategory string, docName string) error {
 
 	// needs to be more safe
@@ -934,7 +402,7 @@ func runInitFlow() error {
 			return nil
 		}
 
-		if err := createOrgTemplate(cwd, nyID, nyNamn, nyOrgNr); err != nil {
+		if err := app.CreateOrgTemplate(cwd, nyID, nyNamn, nyOrgNr, embeddedFiles); err != nil {
 			return err
 		}
 		valdOrg = nyID
@@ -981,7 +449,7 @@ func runInitFlow() error {
 			return nil
 		}
 
-		err := createProtokoll(cwd, valdOrg, organ, datum)
+		err := app.CreateProtokoll(cwd, valdOrg, organ, datum)
 		if err != nil {
 			return err
 		}
@@ -1124,7 +592,7 @@ func runActionFlow(action string) {
 			}
 			force = true
 		}
-		if err := doBuild(valdKalla, force); err != nil {
+		if err := app.DoBuild(valdKalla, force); err != nil {
 			fmt.Printf("Failed to build %v\n", err)
 		}
 		pausePrompt()
@@ -1146,7 +614,7 @@ func runActionFlow(action string) {
 		if askInput("Ange GPG E-post/ID:", &gpgKey) != nil || gpgKey == "" {
 			return
 		}
-		if err := doSeal(valdKalla, gpgKey, force); err != nil {
+		if err := app.DoSeal(valdKalla, gpgKey, force); err != nil {
 			fmt.Println(err)
 		}
 		pausePrompt()
