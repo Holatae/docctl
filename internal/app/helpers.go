@@ -86,7 +86,6 @@ func CreateOrgTemplate(projRoot, orgID, orgNamn, orgNummer string, embeddedFiles
 	if err != nil {
 		return err
 	}
-	cwd, _ := os.Getwd()
 
 	mallDir := filepath.Join(projRoot, orgID, "mallar")
 	if err := os.MkdirAll(mallDir, 0o755); err != nil {
@@ -104,7 +103,7 @@ func CreateOrgTemplate(projRoot, orgID, orgNamn, orgNummer string, embeddedFiles
 			content = strings.ReplaceAll(content, "{{ORG_NUMMER}}", orgNummer)
 
 			cfg.Foreningar[orgID] = Association{Name: orgNamn, OrgNummer: orgNummer, Body: []string{"styrelsen", "årsmöte"}}
-			if err := SaveConfig(cwd, cfg); err != nil {
+			if err := SaveConfig(projRoot, cfg); err != nil {
 				return err
 			}
 
@@ -205,8 +204,8 @@ Thumbs.db
 *_temp.typ
 
 # Valfritt: Ignorera tunga leveransformat i Git
-# arkiv/*.pdf
-# arkiv/*.docx
+arkiv/*.pdf
+arkiv/*.docx
 `
 	if err := os.WriteFile(filepath.Join(cwd, ".gitignore"), []byte(gitignore), 0o644); err != nil {
 		return fmt.Errorf("could not write .gitignore: %v", err)
@@ -215,9 +214,14 @@ Thumbs.db
 	// 4. Initiera Git automatiskt (om git finns installerat)
 	if _, err := exec.LookPath("git"); err == nil {
 		fmt.Println("   -> Sätter upp versionshantering (git init)...")
-		if err := exec.Command("git", "init").Run(); err != nil {
-			return fmt.Errorf("could not git init: %v", err)
+
+		cmd := exec.Command("git", "init")
+		cmd.Dir = cwd
+
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("git init failed: %w", err)
 		}
+
 	}
 
 	fmt.Println("✅ Arbetsutrymme skapat! Du är redo att köra.")
