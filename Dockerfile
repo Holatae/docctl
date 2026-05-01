@@ -22,7 +22,7 @@ RUN go mod download
 
 COPY . .
 
-CMD ["go", "test"]
+CMD ["go", "test", "./...", "-v"]
 
 
 # ENTRYPOINT ["top", "-b"]
