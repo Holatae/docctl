@@ -748,7 +748,7 @@ func startTUI() {
 
 		switch action {
 		case "init":
-			runInitFlow()
+			_ = runInitFlow()
 		case "build":
 			runActionFlow("build")
 		case "seal":
@@ -794,8 +794,16 @@ func runSettingsFlow() {
 			}
 
 			cfg.Foreningar[nyID] = Association{Name: nyNamn, OrgNummer: nyOrgNr, Body: []string{"styrelsen", "årsmöte"}}
-			saveConfig(cwd, cfg)
-			createOrgTemplate(cwd, nyID, nyNamn, nyOrgNr)
+			if err := saveConfig(cwd, cfg); err != nil {
+				fmt.Println("Error occured while saving config")
+				pausePrompt()
+				return
+			}
+			if err := createOrgTemplate(cwd, nyID, nyNamn, nyOrgNr); err != nil {
+				fmt.Println("Error occured while creating template")
+				pausePrompt()
+				return
+			}
 
 			fmt.Println("✅ Förening sparad! Du hittar den nu i menyerna.")
 			pausePrompt() // <---- Skaparen får en chans att läsa detta innan menyn tar över skärmen igen
@@ -830,7 +838,9 @@ func runSettingsFlow() {
 			f.Name = nyNamn
 			f.OrgNummer = nyOrgNr
 			cfg.Foreningar[valdOrg] = f
-			saveConfig(cwd, cfg)
+			if err := saveConfig(cwd, cfg); err != nil {
+				fmt.Printf("Error occurred while saving config %v\n", err)
+			}
 			fmt.Println("✅ Ändringarna sparade!")
 			pausePrompt()
 
@@ -841,7 +851,9 @@ func runSettingsFlow() {
 			}
 
 			cfg.Settings.CreateZIP = sysZip
-			saveConfig(cwd, cfg)
+			if err := saveConfig(cwd, cfg); err != nil {
+				fmt.Printf("Error occurred while saving config %v\n", err)
+			}
 			fmt.Println("✅ Inställningen sparad!")
 			pausePrompt()
 
@@ -875,7 +887,9 @@ func createProtokoll(cwd string, orgId string, body string, date string) error {
 	if !slices.Contains(currentOrg.Body, body) {
 		currentOrg.Body = append(currentOrg.Body, body)
 		cfg.Foreningar[orgId] = currentOrg
-		saveConfig(cwd, cfg)
+		if err := saveConfig(cwd, cfg); err != nil {
+			return err
+		}
 	}
 
 	if len(date) < 4 {
@@ -969,7 +983,9 @@ func runInitFlow() error {
 			return nil
 		}
 
-		createOrgTemplate(cwd, nyID, nyNamn, nyOrgNr)
+		if err := createOrgTemplate(cwd, nyID, nyNamn, nyOrgNr); err != nil {
+			return err
+		}
 		valdOrg = nyID
 	}
 
@@ -990,9 +1006,9 @@ func runInitFlow() error {
 	// 3. LOGIK BASERAT PÅ VALD KATEGORI
 	switch dokTyp {
 	case "protokoll":
-		aktuellFörening := cfg.Foreningar[valdOrg]
+		currentAssociation := cfg.Foreningar[valdOrg]
 		organOptions := []huh.Option[string]{}
-		for _, o := range aktuellFörening.Body {
+		for _, o := range currentAssociation.Body {
 			organOptions = append(organOptions, huh.NewOption(o, o))
 		}
 		organOptions = append(organOptions, huh.NewOption("➕ Nytt organ...", "_NEW_ORGAN"))
@@ -1004,9 +1020,11 @@ func runInitFlow() error {
 			if askInput("Organets namn (t.ex. festkommitté):", &organ) != nil || organ == "" {
 				return nil
 			}
-			aktuellFörening.Body = append(aktuellFörening.Body, organ)
-			cfg.Foreningar[valdOrg] = aktuellFörening
-			saveConfig(cwd, cfg)
+			currentAssociation.Body = append(currentAssociation.Body, organ)
+			cfg.Foreningar[valdOrg] = currentAssociation
+			if err := saveConfig(cwd, cfg); err != nil {
+				return err
+			}
 		}
 		if askInput("Datum (ÅÅÅÅ-MM-DD):", &datum) != nil || len(datum) < 4 {
 			return nil
@@ -1114,7 +1132,7 @@ func runActionFlow(action string) {
 	sokvag := filepath.Join(cwd, valdOrg)
 	var motenOptions []huh.Option[string]
 
-	filepath.WalkDir(sokvag, func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(sokvag, func(path string, d os.DirEntry, err error) error {
 		// Hitta alla "källor"-mappar
 		if d != nil && d.IsDir() && d.Name() == "källor" {
 			// För Seal: Filtrera bort Styrdokument eftersom de bara lever i Git och inte ska låsas.
@@ -1155,7 +1173,9 @@ func runActionFlow(action string) {
 			}
 			force = true
 		}
-		doBuild(valdKalla, force)
+		if err := doBuild(valdKalla, force); err != nil {
+			fmt.Printf("Failed to build %v\n", err)
+		}
 		pausePrompt()
 
 	} else if action == "seal" {
