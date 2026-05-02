@@ -19,6 +19,9 @@ type appState int
 const (
 	stateMainMenu appState = iota
 	stateSettingsMenu
+	stateSystemSettings
+	stateEditZip
+	stateEditOts
 )
 
 type mainModel struct {
@@ -27,12 +30,86 @@ type mainModel struct {
 	cfg   *app.Config
 
 	// Formulär
-	mainMenu     *huh.Form
-	settingsMenu *huh.Form
+	mainMenu          *huh.Form
+	settingsMenu      *huh.Form
+	activeSettingForm *huh.Form
 }
 
 func (m mainModel) Init() tea.Cmd {
 	return nil
+}
+
+func (m mainModel) updateMainMenu(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	form, cmd := m.mainMenu.Update(keyMsg)
+	if f, ok := form.(*huh.Form); ok {
+		m.mainMenu = f
+	}
+	cmds = append(cmds, cmd)
+
+	// Blev menyn klar? (tryckte användaren enter?)
+	if m.mainMenu.State == huh.StateCompleted {
+		action := m.mainMenu.GetString("action")
+
+		switch action {
+		case "settings":
+			m.state = stateSettingsMenu
+
+			cmds = append(cmds, m.settingsMenu.Init())
+
+			m.mainMenu = createMainMenuForm()
+		case "exit":
+			return m, tea.Quit
+		}
+
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m mainModel) updateSettingsMenu(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	form, cmd := m.settingsMenu.Update(keyMsg)
+	if f, ok := form.(*huh.Form); ok {
+		m.settingsMenu = f
+	}
+	cmds = append(cmds, cmd)
+
+	if keyMsg, ok := keyMsg.(tea.KeyMsg); ok {
+		if keyMsg.Type == tea.KeyEsc {
+			m.state = stateMainMenu
+
+			cmds = append(cmds, m.settingsMenu.Init())
+
+			m.settingsMenu = createSettingsMenuForm()
+		}
+	}
+	if m.settingsMenu.State == huh.StateCompleted {
+		action := m.settingsMenu.GetString("action")
+		switch action {
+		case "toggle_zip":
+			m.state = stateEditZip
+			m.activeSettingForm = createZipForm(m.cfg.Settings.CreateZIP)
+
+			cmds = append(cmds, m.activeSettingForm.Init())
+
+			m.settingsMenu = createSettingsMenuForm()
+		case "toggle_ots":
+			m.state = stateEditOts
+			m.activeSettingForm = createOpenTimeStampsForm(m.cfg.Settings.UseOpenTimeStamps)
+
+			cmds = append(cmds, m.activeSettingForm.Init())
+
+			m.settingsMenu = createSettingsMenuForm()
+		case "back":
+			m.state = stateMainMenu
+
+			cmds = append(cmds, m.mainMenu.Init())
+
+			m.settingsMenu = createSettingsMenuForm()
+		}
+	}
+	return m, tea.Batch(cmds...)
 }
 
 func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
@@ -48,20 +125,57 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 	switch m.state {
 
 	case stateMainMenu:
-		form, cmd := m.mainMenu.Update(keyMsg)
+		return m.updateMainMenu(keyMsg)
+	case stateSettingsMenu:
+		return m.updateSettingsMenu(keyMsg)
+	case stateEditZip:
+		form, cmd := m.activeSettingForm.Update(keyMsg)
+
 		if f, ok := form.(*huh.Form); ok {
-			m.mainMenu = f
+			m.activeSettingForm = f
 		}
+
 		cmds = append(cmds, cmd)
 
-		// Blev menyn klar? (tryckte användaren enter?)
-		if m.mainMenu.State == huh.StateCompleted {
-			action := m.mainMenu.GetString("action")
+		if m.activeSettingForm.State == huh.StateCompleted {
+			m.cfg.Settings.CreateZIP = m.activeSettingForm.GetBool("zip")
 
-			if action == "settings" {
-				m.state = stateSettingsMenu
+			if err := app.SaveConfig(m.cwd, *m.cfg); err != nil {
+				fmt.Println("ERROR DELUX")
 			}
+			m.state = stateSettingsMenu
+			cmds = append(cmds, m.settingsMenu.Init())
+			m.settingsMenu = createSettingsMenuForm()
+
+			cmds = append(cmds, cmd)
+
+			return m, tea.Batch(cmds...)
 		}
+
+	case stateEditOts:
+		form, cmd := m.activeSettingForm.Update(keyMsg)
+
+		if f, ok := form.(*huh.Form); ok {
+			m.activeSettingForm = f
+		}
+
+		cmds = append(cmds, cmd)
+
+		if m.activeSettingForm.State == huh.StateCompleted {
+			m.cfg.Settings.UseOpenTimeStamps = m.activeSettingForm.GetBool("ots")
+
+			if err := app.SaveConfig(m.cwd, *m.cfg); err != nil {
+				fmt.Println("ERROR DELUX")
+			}
+			m.state = stateSettingsMenu
+
+			cmds = append(cmds, m.settingsMenu.Init())
+			m.settingsMenu = createSettingsMenuForm()
+			cmds = append(cmds, cmd)
+
+			return m, tea.Batch(cmds...)
+		}
+
 	default:
 		panic("unhandled default case")
 	}
@@ -72,23 +186,15 @@ func (m mainModel) View() string {
 	switch m.state {
 	case stateMainMenu:
 		return m.mainMenu.View()
+	case stateSettingsMenu:
+		return m.settingsMenu.View()
+	case stateEditZip:
+		return m.activeSettingForm.View()
+	case stateEditOts:
+		return m.activeSettingForm.View()
 	default:
 		return "Eeeh något gick fel"
 	}
-}
-
-func createMainMenuForm() *huh.Form {
-	return huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().
-				Key("action"). // Sätter en nyckel vi kan hämta med GetString()
-				Title("Huvudmeny").
-				Options(
-					huh.NewOption("⚙️ Inställningar", "settings"),
-					huh.NewOption("❌ Avsluta", "exit"),
-				),
-		),
-	)
 }
 
 func StartTUI() error {
@@ -97,10 +203,11 @@ func StartTUI() error {
 	cfg, _ := app.LoadConfig(cwd)
 
 	initialModel := mainModel{
-		state:    stateMainMenu,
-		cwd:      cwd,
-		cfg:      &cfg,
-		mainMenu: createMainMenuForm(),
+		state:        stateMainMenu,
+		cwd:          cwd,
+		cfg:          &cfg,
+		mainMenu:     createMainMenuForm(),
+		settingsMenu: createSettingsMenuForm(),
 	}
 
 	p := tea.NewProgram(initialModel, tea.WithAltScreen())

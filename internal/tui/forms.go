@@ -302,20 +302,28 @@ func runInitFlow() error {
 	return nil
 }
 
-func showMainMenu() (string, error) {
+func createMainMenuForm() *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Key("action").Title("Huvudmeny").Options(
+				huh.NewOption("✨ Skapa dokument / möte (Init)", "init"),
+				huh.NewOption("🏗️ Bygg dokument (Build)", "build"),
+				huh.NewOption("🔒 Försegla arkiv (Seal)", "seal"),
+				huh.NewOption("⚙️ Inställningar", "settings"),
+				huh.NewOption("❌ Avsluta", "exit"),
+			)))
+}
 
-	var action string
-	options := []huh.Option[string]{
-		huh.NewOption("✨ Skapa dokument / möte (Init)", "init"),
-		huh.NewOption("🏗️ Bygg dokument (Build)", "build"),
-		huh.NewOption("🔒 Försegla arkiv (Seal)", "seal"),
-		huh.NewOption("⚙️ Inställningar", "settings"),
-		huh.NewOption("❌ Avsluta", "exit"),
-	}
-
-	err := askSelect("🗄️ Föreningsarkivet", options, &action)
-
-	return action, err
+func createSettingsMenuForm() *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Key("action").Title("Inställningar").Options(
+				huh.NewOption("➕ Lägg till ny förening", "ny_org"),
+				huh.NewOption("✏️ Redigera befintlig förening", "redigera_org"),
+				huh.NewOption("📦 Hantera ZIP-arkivering (AIP)", "toggle_zip"),
+				huh.NewOption("🕑 Hantera Opentimestamps", "toggle_ots"),
+				huh.NewOption("⬅️ Tillbaka till Huvudmenyn", "back"),
+			)))
 }
 
 func showSettingsMenu() (string, error) {
@@ -347,6 +355,26 @@ func askForNewOrgDetails() (OrgDetails, error) {
 
 	return orgDetails, err
 
+}
+
+func createOpenTimeStampsForm(currentVal bool) *huh.Form {
+	return huh.NewForm(huh.NewGroup(
+		huh.NewConfirm().
+			Key("ots").
+			Title("Använd OpenTimestamps?").
+			Description("Tidsstämplar sealed filer via blockkedjieteknik.").
+			Value(new(currentVal))))
+
+}
+
+func createZipForm(currentVal bool) *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Key("zip").
+				Title("Skapa automatiskt ZIP-arkiv?").
+				Description("Paketerar alla filer i en zip-fil när bygget är klart.").
+				Value(new(currentVal)))).WithTheme(huh.ThemeBase16())
 }
 
 func askForAssociationForm(context *AppContext) (string, error) {
