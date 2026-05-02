@@ -23,6 +23,9 @@ func runActionFlow(action string) {
 
 	var orgOptions []huh.Option[string]
 	for key := range cfg.Foreningar {
+		if key == "" {
+			continue
+		}
 		orgOptions = append(orgOptions, huh.NewOption(key, key))
 	}
 	if len(orgOptions) == 0 {
@@ -117,6 +120,9 @@ func runInitFlow() error {
 	// 1. VÄLJ FÖRENING
 	var orgOptions []huh.Option[string]
 	for key, f := range cfg.Foreningar {
+		if key == "" {
+			continue
+		}
 		orgOptions = append(orgOptions, huh.NewOption(fmt.Sprintf("%s (%s)", key, f.Name), key))
 	}
 	orgOptions = append(orgOptions, huh.NewOption("➕ Lägg till ny förening...", "_NEW_ORG"))
@@ -346,6 +352,9 @@ func askForNewOrgDetails() (OrgDetails, error) {
 func askForAssociationForm(context *AppContext) (string, error) {
 	var orgOptions []huh.Option[string]
 	for key := range context.Cfg.Foreningar {
+		if key == "" {
+			continue
+		}
 		orgOptions = append(orgOptions, huh.NewOption(key, key))
 	}
 	if len(orgOptions) == 0 {
