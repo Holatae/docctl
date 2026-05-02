@@ -23,7 +23,7 @@ func setupTestOrg(t *testing.T) (string, string) {
 	name := "Test Organization"
 	orgNumber := "111111-1111"
 
-	_ = CreateOrgTemplate(cwd, id, name, orgNumber, assets.Files)
+	_ = CreateOrganization(cwd, id, name, orgNumber)
 
 	return cwd, id
 

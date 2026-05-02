@@ -4,17 +4,12 @@ import (
 	"docctl/internal/app"
 	"docctl/internal/assets"
 	"docctl/internal/tui"
-	"embed"
 	"fmt"
 	"os"
 	"path/filepath"
 
 	"github.com/spf13/cobra"
 )
-
-//go:embed internal/assets/embeds
-
-var embeddedFiles embed.FS
 
 // ------------------------------------------
 // PAUSFUNKTIONEN (För att du ska hinna se loggarna)
@@ -74,7 +69,7 @@ var orgCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		cwd, _ := os.Getwd()
 		if args[0] == "add" {
-			err := app.CreateOrgTemplate(cwd, args[1], args[2], args[3], embeddedFiles)
+			err := app.CreateOrganization(cwd, args[1], args[2], args[3])
 			if err != nil {
 				fmt.Println(err)
 				os.Exit(1)

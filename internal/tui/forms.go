@@ -2,7 +2,6 @@ package tui
 
 import (
 	"docctl/internal/app"
-	"docctl/internal/assets"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -133,10 +132,12 @@ func runInitFlow() error {
 			return nil
 		}
 
-		if err := app.CreateOrgTemplate(cwd, nyID, nyNamn, nyOrgNr, assets.Files); err != nil {
+		if err := app.CreateOrganization(cwd, nyID, nyNamn, nyOrgNr); err != nil {
 			return err
 		}
 		valdOrg = nyID
+
+		cfg, _ = app.LoadConfig(cwd)
 	}
 
 	// 2. VÄLJ DOKUMENTTYP
@@ -310,26 +311,28 @@ func runSettingsFlow() {
 
 		switch valdAction {
 		case "ny_org":
-			var nyID, nyNamn, nyOrgNr string
+			var orgId, orgName, orgNumber string
 			err := runForm(huh.NewForm(
 				huh.NewGroup(
-					huh.NewInput().Title("Kortnamn/ID (t.ex. SVDK):").Value(&nyID),
-					huh.NewInput().Title("Fullt namn:").Value(&nyNamn),
-					huh.NewInput().Title("Org.Nr:").Value(&nyOrgNr),
+					huh.NewInput().Title("Kortnamn/ID (t.ex. SVDK):").Value(&orgId),
+					huh.NewInput().Title("Fullt namn:").Value(&orgName),
+					huh.NewInput().Title("Org.Nr:").Value(&orgNumber),
 				),
 			))
 
-			if err != nil || nyID == "" {
+			if err != nil || orgId == "" {
 				continue
 			}
 
-			cfg.Foreningar[nyID] = app.Association{Name: nyNamn, OrgNummer: nyOrgNr, Body: []string{"styrelsen", "årsmöte"}}
+			_ = app.CreateOrganization(cwd, orgId, orgName, orgNumber)
+
+			cfg.Foreningar[orgId] = app.Association{Name: orgName, OrgNummer: orgNumber, Body: []string{"styrelsen", "årsmöte"}}
 			if err := app.SaveConfig(cwd, cfg); err != nil {
 				fmt.Println("Error occured while saving config")
 				pausePrompt()
 				return
 			}
-			if err := app.CreateOrgTemplate(cwd, nyID, nyNamn, nyOrgNr, assets.Files); err != nil {
+			if err := app.CreateOrganization(cwd, orgId, orgName, orgNumber); err != nil {
 				fmt.Println("Error occured while creating template")
 				pausePrompt()
 				return

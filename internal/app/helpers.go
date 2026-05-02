@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"crypto/sha256"
+	"docctl/internal/assets"
 	"embed"
 	"encoding/hex"
 	"fmt"
@@ -81,39 +82,80 @@ func copyDir(src string, dst string) error {
 	})
 }
 
-func CreateOrgTemplate(projRoot, orgID, orgNamn, orgNummer string, embeddedFiles embed.FS) error {
-	cfg, err := LoadConfig(projRoot)
-	if err != nil {
-		return err
-	}
-
+// createOrgTemplateFiles hanterar endast filsystemet för en ny organisation.
+// Liten begynnelsebokstav gör att den inte syns utåt (t.ex. för TUI:t).
+func createOrgTemplateFiles(projRoot, orgID, orgName, orgNumber string) error {
 	mallDir := filepath.Join(projRoot, orgID, "mallar")
 	if err := os.MkdirAll(mallDir, 0o755); err != nil {
-		return fmt.Errorf("could not make mallar directory: %w", err)
+		return fmt.Errorf("kunde inte skapa mallmappen: %w", err)
 	}
+
 	outPath := filepath.Join(mallDir, orgID+".typ")
 
 	// Skapa bara filen om den inte redan finns (så vi inte skriver över egna anpassningar)
-	if _, err := os.Stat(outPath); os.IsNotExist(err) {
-		templateData, err := embeddedFiles.ReadFile("embeds/org_mall_template.typ")
-		if err == nil {
-			content := string(templateData)
-			// Hitta och ersätt våra platshållare!
-			content = strings.ReplaceAll(content, "{{ORG_NAMN}}", orgNamn)
-			content = strings.ReplaceAll(content, "{{ORG_NUMMER}}", orgNummer)
-
-			cfg.Foreningar[orgID] = Association{Name: orgNamn, OrgNummer: orgNummer, Body: []string{"styrelsen", "årsmöte"}}
-			if err := SaveConfig(projRoot, cfg); err != nil {
-				return err
-			}
-
-			if err := os.WriteFile(outPath, []byte(content), 0o644); err != nil {
-				return fmt.Errorf("could not write org_mall_template.typ: %w", err)
-			}
-		} else {
-			fmt.Printf("❌ Kunde inte hitta 'org_mall_template.typ' i embeds: %v\n", err)
-		}
+	if _, err := os.Stat(outPath); err == nil {
+		// Filen finns redan, vi är klara.
+		return nil
+	} else if !os.IsNotExist(err) {
+		// Ett oväntat läsfel inträffade
+		return fmt.Errorf("kunde inte kontrollera status på filen %s: %w", outPath, err)
 	}
+
+	// Läs in mallen från assets (vi behöver inte skicka in embed.FS som parameter längre)
+	templateData, err := assets.Files.ReadFile("embeds/org_mall_template.typ")
+	if err != nil {
+		return fmt.Errorf("kunde inte läsa inbyggd mall 'org_mall_template.typ': %w", err)
+	}
+
+	// Hitta och ersätt våra platshållare!
+	content := string(templateData)
+	content = strings.ReplaceAll(content, "{{ORG_NAMN}}", orgName)
+	content = strings.ReplaceAll(content, "{{ORG_NUMMER}}", orgNumber)
+
+	// Spara den nya filen
+	if err := os.WriteFile(outPath, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("kunde inte skriva mallfilen %s: %w", outPath, err)
+	}
+
+	return nil
+}
+
+// CreateOrganization är huvudfunktionen för att skapa en ny förening.
+// Den skapar konfigurationen och genererar standardmallar.
+func CreateOrganization(projRoot, orgID, orgName, orgNumber string) error {
+	// 1. Ladda befintlig konfiguration
+	cfg, err := LoadConfig(projRoot)
+	if err != nil {
+		return fmt.Errorf("kunde inte ladda konfiguration: %w", err)
+	}
+
+	// 2. Säkerställ att mappen (Foreningar) är initialiserad så vi slipper nil-pointer krascher
+	if cfg.Foreningar == nil {
+		cfg.Foreningar = make(map[string]Association)
+	}
+
+	// 3. Kolla om organisationen redan existerar
+	if _, exists := cfg.Foreningar[orgID]; exists {
+		return fmt.Errorf("organisationen '%s' existerar redan", orgID)
+	}
+
+	// 4. Skapa organisationen i konfigurationen med standardorgan
+	cfg.Foreningar[orgID] = Association{
+		Name:      orgName,
+		OrgNummer: orgNumber,
+		Body:      []string{"styrelsen", "årsmöte"}, // Lägg till dina standardorgan här
+	}
+
+	// 5. Spara konfigurationen först. Går detta fel, backar vi ur direkt.
+	if err := SaveConfig(projRoot, cfg); err != nil {
+		return fmt.Errorf("kunde inte spara konfigurationen för %s: %w", orgID, err)
+	}
+
+	// 6. Skapa mallfiler på disken
+	if err := createOrgTemplateFiles(projRoot, orgID, orgName, orgNumber); err != nil {
+		return fmt.Errorf("kunde inte skapa mallfiler för %s: %w", orgID, err)
+	}
+
 	return nil
 }
 
