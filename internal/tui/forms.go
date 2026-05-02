@@ -10,6 +10,12 @@ import (
 	"github.com/charmbracelet/huh"
 )
 
+type OrgDetails struct {
+	ID     string
+	Name   string
+	Number string
+}
+
 func runActionFlow(action string) {
 	cwd, _ := os.Getwd()
 	cfg, _ := app.LoadConfig(cwd)
@@ -290,7 +296,7 @@ func runInitFlow() error {
 	return nil
 }
 
-func mainMenu() (string, error) {
+func showMainMenu() (string, error) {
 
 	var action string
 	options := []huh.Option[string]{
@@ -306,122 +312,73 @@ func mainMenu() (string, error) {
 	return action, err
 }
 
-func runSettingsFlow() {
-	for {
-		cwd, _ := os.Getwd()
-		cfg, _ := app.LoadConfig(cwd)
-		var valdAction string
+func showSettingsMenu() (string, error) {
+	var action string
 
-		options := []huh.Option[string]{
-			huh.NewOption("➕ Lägg till ny förening", "ny_org"),
-			huh.NewOption("✏️ Redigera befintlig förening", "redigera_org"),
-			huh.NewOption("📦 Hantera ZIP-arkivering (AIP)", "toggle_zip"),
-			huh.NewOption("🕑 Hantera Opentimestamps", "toggle_ots"),
-			huh.NewOption("⬅️ Tillbaka till Huvudmenyn", "back"),
-		}
-
-		err := askSelect("⚙️ Inställningar", options, &valdAction)
-		if err != nil || valdAction == "back" {
-			return
-		}
-
-		switch valdAction {
-		case "ny_org":
-			var orgId, orgName, orgNumber string
-			err := runForm(huh.NewForm(
-				huh.NewGroup(
-					huh.NewInput().Title("Kortnamn/ID (t.ex. SVDK):").Value(&orgId),
-					huh.NewInput().Title("Fullt namn:").Value(&orgName),
-					huh.NewInput().Title("Org.Nr:").Value(&orgNumber),
-				),
-			))
-
-			if err != nil || orgId == "" {
-				continue
-			}
-
-			_ = app.CreateOrganization(cwd, orgId, orgName, orgNumber)
-
-			cfg.Foreningar[orgId] = app.Association{Name: orgName, OrgNummer: orgNumber, Body: []string{"styrelsen", "årsmöte"}}
-			if err := app.SaveConfig(cwd, cfg); err != nil {
-				fmt.Println("Error occured while saving config")
-				pausePrompt()
-				return
-			}
-			if err := app.CreateOrganization(cwd, orgId, orgName, orgNumber); err != nil {
-				fmt.Println("Error occured while creating template")
-				pausePrompt()
-				return
-			}
-
-			fmt.Println("✅ Förening sparad! Du hittar den nu i menyerna.")
-			pausePrompt() // <---- Skaparen får en chans att läsa detta innan menyn tar över skärmen igen
-
-		case "redigera_org":
-			var orgOptions []huh.Option[string]
-			for key := range cfg.Foreningar {
-				orgOptions = append(orgOptions, huh.NewOption(key, key))
-			}
-			if len(orgOptions) == 0 {
-				continue
-			}
-
-			var valdOrg string
-			if askSelect("Vilken förening?", orgOptions, &valdOrg) != nil {
-				continue
-			}
-
-			f := cfg.Foreningar[valdOrg]
-			nyNamn := f.Name
-			nyOrgNr := f.OrgNummer
-
-			err = runForm(huh.NewForm(
-				huh.NewGroup(
-					huh.NewInput().Title("Fullt namn:").Value(&nyNamn),
-					huh.NewInput().Title("Org.Nr:").Value(&nyOrgNr),
-				),
-			))
-			if err != nil {
-				continue
-			}
-			f.Name = nyNamn
-			f.OrgNummer = nyOrgNr
-			cfg.Foreningar[valdOrg] = f
-			if err := app.SaveConfig(cwd, cfg); err != nil {
-				fmt.Printf("Error occurred while saving config %v\n", err)
-			}
-			fmt.Println("✅ Ändringarna sparade!")
-			pausePrompt()
-
-		case "toggle_zip":
-			sysZip := cfg.Settings.CreateZIP
-			if askConfirm(fmt.Sprintf("Skapa automatiskt ZIP-arkiv? (Nu: %v)", sysZip), &sysZip) != nil {
-				continue
-			}
-
-			cfg.Settings.CreateZIP = sysZip
-			if err := app.SaveConfig(cwd, cfg); err != nil {
-				fmt.Printf("Error occurred while saving config %v\n", err)
-			}
-			fmt.Println("✅ Inställningen sparad!")
-			pausePrompt()
-
-		case "toggle_ots":
-			sysOts := cfg.Settings.UseOpenTimeStamps
-			if askConfirm(fmt.Sprintf("Skapa timestamp med OpenTimeStamp (Nu: %v)", sysOts), &sysOts) != nil {
-				continue
-			}
-
-			cfg.Settings.UseOpenTimeStamps = sysOts
-			err := app.SaveConfig(cwd, cfg)
-			if err != nil {
-				fmt.Println("KUNDE INTE SPARA INSTÄLLNINGEN")
-				pausePrompt()
-			} else {
-				fmt.Println("✅ Inställningen sparad!")
-				pausePrompt()
-			}
-
-		}
+	options := []huh.Option[string]{
+		huh.NewOption("➕ Lägg till ny förening", "ny_org"),
+		huh.NewOption("✏️ Redigera befintlig förening", "redigera_org"),
+		huh.NewOption("📦 Hantera ZIP-arkivering (AIP)", "toggle_zip"),
+		huh.NewOption("🕑 Hantera Opentimestamps", "toggle_ots"),
+		huh.NewOption("⬅️ Tillbaka till Huvudmenyn", "back"),
 	}
+
+	err := askSelect("⚙️ Inställningar", options, &action)
+
+	return action, err
+}
+
+func askForNewOrgDetails() (OrgDetails, error) {
+	var orgDetails OrgDetails
+
+	err := runForm(huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().Title("Kortnamn/ID (t.ex. SVDK):").Value(&orgDetails.ID),
+			huh.NewInput().Title("Fullt namn:").Value(&orgDetails.Name),
+			huh.NewInput().Title("Org.Nr:").Value(&orgDetails.Number),
+		),
+	))
+
+	return orgDetails, err
+
+}
+
+func askForAssociationForm(context *AppContext) (string, error) {
+	var orgOptions []huh.Option[string]
+	for key := range context.Cfg.Foreningar {
+		orgOptions = append(orgOptions, huh.NewOption(key, key))
+	}
+	if len(orgOptions) == 0 {
+		return "", fmt.Errorf("no association found")
+	}
+
+	var valdOrg string
+	if err := askSelect("Vilken förening?", orgOptions, &valdOrg); err != nil {
+		return "", err
+	}
+
+	return valdOrg, nil
+
+}
+
+func askForNewDetailsForAssociationForm(org OrgDetails) (OrgDetails, error) {
+	err := runForm(huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().Title("Fullt namn:").Value(&org.Name),
+			huh.NewInput().Title("Org.Nr:").Value(&org.Number),
+		),
+	))
+
+	return org, err
+}
+
+func askToggleSetting(title string, currentValue bool) (bool, error) {
+	newValue := currentValue
+	prompt := fmt.Sprintf("%s (Nu: %v)", title, newValue)
+
+	if err := askConfirm(prompt, &newValue); err != nil {
+		return currentValue, err
+	}
+
+	return newValue, nil
 }
