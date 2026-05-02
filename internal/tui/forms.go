@@ -290,6 +290,22 @@ func runInitFlow() error {
 	return nil
 }
 
+func mainMenu() (string, error) {
+
+	var action string
+	options := []huh.Option[string]{
+		huh.NewOption("✨ Skapa dokument / möte (Init)", "init"),
+		huh.NewOption("🏗️ Bygg dokument (Build)", "build"),
+		huh.NewOption("🔒 Försegla arkiv (Seal)", "seal"),
+		huh.NewOption("⚙️ Inställningar", "settings"),
+		huh.NewOption("❌ Avsluta", "exit"),
+	}
+
+	err := askSelect("🗄️ Föreningsarkivet", options, &action)
+
+	return action, err
+}
+
 func runSettingsFlow() {
 	for {
 		cwd, _ := os.Getwd()

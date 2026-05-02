@@ -2,24 +2,14 @@ package tui
 
 import (
 	"fmt"
-
-	"github.com/charmbracelet/huh"
 )
 
 func StartTUI() {
 	_ = checkFirstRun()
 
 	for {
-		var action string
-		options := []huh.Option[string]{
-			huh.NewOption("✨ Skapa dokument / möte (Init)", "init"),
-			huh.NewOption("🏗️ Bygg dokument (Build)", "build"),
-			huh.NewOption("🔒 Försegla arkiv (Seal)", "seal"),
-			huh.NewOption("⚙️ Inställningar", "settings"),
-			huh.NewOption("❌ Avsluta", "exit"),
-		}
 
-		err := askSelect("🗄️ Föreningsarkivet", options, &action)
+		action, err := mainMenu()
 
 		if err != nil || action == "exit" {
 			fmt.Println("Avslutar DocCtl. 👋")
@@ -37,4 +27,5 @@ func StartTUI() {
 			runSettingsFlow()
 		}
 	}
+
 }
