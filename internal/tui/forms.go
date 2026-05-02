@@ -145,7 +145,7 @@ func runInitFlow() error {
 	huvudKategoriOptions := []huh.Option[string]{
 		huh.NewOption("📝 Protokoll (Årsakter)", "protokoll"),
 		huh.NewOption("📜 Styrdokument/Policy (Grundakter)", "styrdokument"),
-		huh.NewOption("🤝 Avtal (Grundakter)", "avtal"),
+		huh.NewOption("🤝 Andra dokument (Grundakter)", "other"),
 	}
 	if askSelect("Vad vill du skapa?", huvudKategoriOptions, &dokTyp) != nil {
 		return nil
@@ -185,66 +185,96 @@ func runInitFlow() error {
 			return err
 		}
 
-		//ar := datum[:4]
-		//basePath = filepath.Join(cwd, valdOrg, "Årsakter", ar, organ, datum, "källor")
-		//mdPath = filepath.Join(basePath, "protokoll.md")
-		//mallText = fmt.Sprintf("---\ntyp: protokoll\ntitle: Protokoll %s\ndatum: %s\ntid: 18:00\nplats: Föreningslokalen\nordforande: Namn Namnsson\nsekreterare: Namn Namnsson\njusterare:\n  - Justerare 1\n---\n\n## Mötets öppnande\n", organ, datum)
-
 	case "styrdokument":
 
 		// SKANNA EFTER BEFINTLIGA KATEGORIER: Leta i Grundakter/Styrdokument/
-		underkatPath := filepath.Join(cwd, valdOrg, "Grundakter", "Styrdokument")
-		var subKategori string
+		subcategoryPath := filepath.Join(cwd, valdOrg, "Grundakter", "Styrdokument")
+		var subcategory string
 
-		var kategoriOptions []huh.Option[string]
-		entries, err := os.ReadDir(underkatPath)
+		var categoryOptions []huh.Option[string]
+		entries, err := os.ReadDir(subcategoryPath)
 		if err == nil {
 			for _, e := range entries {
 				if e.IsDir() {
-					kategoriOptions = append(kategoriOptions, huh.NewOption(e.Name(), e.Name()))
+					categoryOptions = append(categoryOptions, huh.NewOption(e.Name(), e.Name()))
 				}
 			}
 		}
-		kategoriOptions = append(kategoriOptions, huh.NewOption("➕ Skapa ny kategori...", "_NEW_KAT"))
+		categoryOptions = append(categoryOptions, huh.NewOption("➕ Skapa ny kategori...", "_NEW_KAT"))
 
-		if askSelect("Vilken typ av styrdokument?", kategoriOptions, &subKategori) != nil {
+		if askSelect("Vilken typ av styrdokument?", categoryOptions, &subcategory) != nil {
 			return nil
 		}
 
-		if subKategori == "_NEW_KAT" {
-			if askInput("Kategorins namn (t.ex. Policy, Reglemente, Stadgar):", &subKategori) != nil || subKategori == "" {
+		if subcategory == "_NEW_KAT" {
+			if askInput("Kategorins namn (t.ex. Policy, Reglemente, Stadgar):", &subcategory) != nil || subcategory == "" {
 				return nil
 			}
 			// Ersätt ev. mellanslag så att den är säker för mappar
-			subKategori = strings.ReplaceAll(subKategori, " ", "_")
+			subcategory = strings.ReplaceAll(subcategory, " ", "_")
 		}
 
 		if askInput("Dokumentets/Filens namn (t.ex. IT-policy):", &dokNamn) != nil || dokNamn == "" {
 			return nil
 		}
 
-		err = app.CreateGuidanceDocuments(cwd, valdOrg, subKategori, dokNamn)
+		err = app.CreateGuidanceDocuments(cwd, valdOrg, subcategory, dokNamn)
 		if err != nil {
 			return err
 		}
 
-	/*	mappNamn := strings.ReplaceAll(dokNamn, " ", "_")
+	case "other":
 
-		// Bygg vägen: Grundakter/Styrdokument/Policy/IT-policy/källor/
-		basePath = filepath.Join(underkatPath, subKategori, mappNamn, "källor")
-		mdPath = filepath.Join(basePath, "dokument.md")
+		subcategoryPath := filepath.Join(cwd, valdOrg, "Grundakter")
 
-		// Formatera filen snyggt beroende på kategori, men sätt styrdokument som fall-back!
-		ymlKategori := strings.ToLower(subKategori)
-		mallText = fmt.Sprintf("---\ntyp: %s\ntitle: %s\nversion: 1.0\nantagen: ÅÅÅÅ-MM-DD av Styrelsen\n---\n\n## 1. Syfte\nSyftet med detta dokument är...\n", ymlKategori, dokNamn)
-	*/
-	case "avtal":
-		if askInput("Kort namn på avtalet (t.ex. Hyreskontrakt_Lokal):", &dokNamn) != nil || dokNamn == "" {
+		var categoryOptions []huh.Option[string]
+		var subCategory string
+
+		entries, err := os.ReadDir(subcategoryPath)
+		if err == nil {
+			for _, e := range entries {
+				if e.IsDir() {
+					if e.Name() == "Styrdokument" {
+						continue
+					}
+					categoryOptions = append(categoryOptions, huh.NewOption(e.Name(), e.Name()))
+				}
+			}
+		}
+
+		categoryOptions = append(categoryOptions, huh.NewOption("➕ Skapa ny kategori...", "_NEW_KAT"))
+
+		if askSelect("Vilken typ av Grundakt?", categoryOptions, &subCategory) != nil {
 			return nil
 		}
-		mappNamn := strings.ReplaceAll(dokNamn, " ", "_")
-		basePath = filepath.Join(cwd, valdOrg, "Grundakter", "Avtal", mappNamn, "källor")
+		if subCategory == "_NEW_KAT" {
+			if askInput("Kategorins namn (t.ex. Avtal, Motioner, Propositioner)", &subCategory) != nil || subCategory == "" {
+				return nil
+			}
+
+			subCategory = strings.ReplaceAll(subCategory, " ", "_")
+
+		}
+
+		if askInput("Dokumentets/Filens namn (t.ex Motion angående xx)", &dokNamn) != nil || dokNamn == "" {
+			return nil
+		}
+
+		err = app.CreateOtherGoverningDocuments(cwd, valdOrg, subCategory, dokNamn)
+
+		if err != nil {
+			return err
+		}
+
+		safeDocName := strings.ReplaceAll(dokNamn, " ", "_")
+		folderName := "avtal"
+		basePath = filepath.Join(cwd, valdOrg, "Grundakter", "Avtal", safeDocName, "källor")
 		mdPath = filepath.Join(basePath, "avtal.md")
+
+		if err := app.CreateOtherGoverningDocuments(cwd, valdOrg, folderName, safeDocName); err != nil {
+			return err
+		}
+
 		//mallText = fmt.Sprintf("---\ntyp: avtal\ntitle: %s\ndatum: %s\nparter:\n  - Föreningen\n  - Motparten AB\n---\n\n## 1. Avtalsobjekt\nDetta avtal avser...\n", dokNamn, time.Now().Format("2006-01-02"))
 	}
 

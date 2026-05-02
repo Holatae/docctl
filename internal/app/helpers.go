@@ -302,3 +302,36 @@ func CreateGuidanceDocuments(cwd string, orgId string, subcategory string, docNa
 
 	return nil
 }
+
+// TODO Make another function of CreateGuidanceDcouments and CreateOtherGoverningDocuments
+func CreateOtherGoverningDocuments(cwd string, orgId string, category string, docName string) error {
+
+	// needs to be more safe
+	safeCategory := strings.ReplaceAll(category, " ", "-")
+	safeDocName := strings.ReplaceAll(docName, " ", "-")
+	ymlCategory := strings.ToLower(category)
+
+	basePath := filepath.Join(cwd, orgId, "Grundakter")
+	mdPath := filepath.Join(basePath, safeCategory, safeDocName, "källor", "document.md")
+
+	standardText := fmt.Sprintf("---\ntyp: %s\ntitle: %s\nversion: 1.0\nantagen: ÅÅÅÅ-MM-DD av Styrelsen\n---\n\n## 1. Syfte\nSyftet med detta dokument är...\n", ymlCategory, docName)
+
+	if err := os.MkdirAll(filepath.Join(basePath, safeCategory, safeDocName, "källor"), os.ModePerm); err != nil {
+		return fmt.Errorf("could create folders")
+	}
+
+	f, err := os.Create(mdPath)
+	if err != nil {
+		return fmt.Errorf("could not create markdown file")
+	}
+	defer func(f *os.File) {
+		_ = f.Close()
+	}(f)
+
+	if _, err := f.WriteString(standardText); err != nil {
+		return fmt.Errorf("could not write to file")
+	}
+
+	return nil
+
+}
