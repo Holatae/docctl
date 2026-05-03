@@ -440,6 +440,29 @@ func genericInputForm(title string, key string) *huh.Form {
 		huh.NewInput().Title(title).Key(key)))
 }
 
+func chooseOtherDocumentTypeForm(cwd string, org app.Association) *huh.Form {
+	// SKANNA EFTER BEFINTLIGA KATEGORIER: Leta i Grundakter/
+	subcategoryPath := filepath.Join(cwd, org.Id, "Grundakter")
+
+	var categoryOptions []huh.Option[string]
+	entries, err := os.ReadDir(subcategoryPath)
+	if err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				if e.Name() == "Styrdokument" {
+					continue
+				}
+				categoryOptions = append(categoryOptions, huh.NewOption(e.Name(), e.Name()))
+			}
+		}
+	}
+	categoryOptions = append(categoryOptions, huh.NewOption("➕ Skapa ny kategori...", "create_new"))
+
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Key("selected_document_type").Title("Vilken typ av Grundakt?").Options(categoryOptions...)))
+}
+
 func chooseDocumentTypeForm() *huh.Form {
 
 	var options []huh.Option[string]

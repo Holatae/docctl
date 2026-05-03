@@ -35,6 +35,9 @@ const (
 	stateChooseGoverningDocumentTypeForm
 	stateCreateNewGoverningDocumentTypeForm
 	stateAskGoverningDocumentNameForm
+	stateChooseOtherDocumentType
+	stateChooseOtherDocumentCategoryNameForm
+	stateCreateOtherDocumentTypeForm
 )
 
 type mainModel struct {
@@ -49,6 +52,7 @@ type mainModel struct {
 
 	selectedGoverningDocType string
 	selectedGoverningDocName string
+	grundaktCategory         string
 
 	activeForm *huh.Form
 
@@ -194,6 +198,15 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		cmds = append(cmds, cmd)
 
+		if keyMsg, ok := keyMsg.(tea.KeyMsg); ok {
+			if keyMsg.Type == tea.KeyEsc {
+				m.state = stateMainMenu
+				m.mainMenu = createMainMenuForm()
+				cmds = append(cmds, m.mainMenu.Init())
+				return m, tea.Batch(cmds...)
+			}
+		}
+
 		if m.activeForm.State == huh.StateCompleted {
 			action := m.activeForm.GetString("selected_org")
 			switch action {
@@ -297,7 +310,65 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 				m.activeForm = chooseGoverningDocumentTypeForm(m.cwd, m.selectedOrg)
 				cmds = append(cmds, m.activeForm.Init())
 			case "other":
+				m.selectedDocumentType = documentType
+				m.state = stateChooseOtherDocumentType
+				m.activeForm = chooseOtherDocumentTypeForm(m.cwd, m.selectedOrg)
+				cmds = append(cmds, m.activeForm.Init())
+
 			}
+		}
+	case stateChooseOtherDocumentType:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+		if m.activeForm.State == huh.StateCompleted {
+			selectedDocumentType := m.activeForm.GetString("selected_document_type")
+			switch selectedDocumentType {
+			case "create_new":
+				m.state = stateChooseOtherDocumentCategoryNameForm
+				m.activeForm = genericInputForm("Kategorins namn (t.ex. Avtal, Motioner, Propositioner)", "name")
+				cmds = append(cmds, m.activeForm.Init())
+
+			default:
+				m.grundaktCategory = selectedDocumentType
+				m.state = stateCreateOtherDocumentTypeForm
+				m.activeForm = genericInputForm("Dokumentets/Filens namn (t.ex Motion angående xx)", "name")
+				cmds = append(cmds, m.activeForm.Init())
+			}
+
+		}
+	case stateChooseOtherDocumentCategoryNameForm:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+
+		if m.activeForm.State == huh.StateCompleted {
+			name := m.activeForm.GetString("name")
+
+			_ = os.MkdirAll(filepath.Join(m.cwd, m.selectedOrg.Id, "Grundakter", m.grundaktCategory, name), os.ModePerm)
+			m.state = stateChooseOtherDocumentType
+			m.activeForm = chooseOtherDocumentTypeForm(m.cwd, m.selectedOrg)
+			cmds = append(cmds, m.activeForm.Init())
+
+		}
+
+	case stateCreateOtherDocumentTypeForm:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+		if m.activeForm.State == huh.StateCompleted {
+			name := m.activeForm.GetString("name")
+			_ = app.CreateOtherGoverningDocuments(m.cwd, m.selectedOrg.Id, m.grundaktCategory, name)
+
+			m.state = stateMainMenu
+			m.mainMenu = createMainMenuForm()
+			cmds = append(cmds, m.mainMenu.Init())
 		}
 	case stateChooseGoverningDocumentTypeForm:
 		form, cmd := m.activeForm.Update(keyMsg)
@@ -359,6 +430,16 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.activeForm = f
 		}
 		cmds = append(cmds, cmd)
+
+		if keyMsg, ok := keyMsg.(tea.KeyMsg); ok {
+			if keyMsg.Type == tea.KeyEsc {
+				m.state = stateChooseDocumentTypeForm
+				m.activeForm = chooseDocumentTypeForm()
+				cmds = append(cmds, m.activeForm.Init())
+				return m, tea.Batch(cmds...)
+			}
+		}
+
 		if m.activeForm.State == huh.StateCompleted {
 			body := m.activeForm.GetString("selected_body")
 			switch body {
@@ -423,7 +504,8 @@ func (m mainModel) View() string {
 		return m.settingsMenu.View()
 	case stateEditZip, stateEditOts, stateChooseOrgForDoc, stateCreateOrganization, stateFirstRun,
 		stateChooseDocumentTypeForm, stateChooseBodyForm, stateCreateBody, stateAskDateForm,
-		stateChooseGoverningDocumentTypeForm, stateCreateNewGoverningDocumentTypeForm, stateAskGoverningDocumentNameForm:
+		stateChooseGoverningDocumentTypeForm, stateCreateNewGoverningDocumentTypeForm, stateAskGoverningDocumentNameForm,
+		stateChooseOtherDocumentType, stateChooseOtherDocumentCategoryNameForm, stateCreateOtherDocumentTypeForm:
 		if m.activeForm == nil {
 			return "Laddar..."
 		}
