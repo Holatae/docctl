@@ -326,12 +326,12 @@ func createSettingsMenuForm() *huh.Form {
 			)))
 }
 
-func askForNewOrgDetailsForm(newOrg OrgDetails) *huh.Form {
+func askForNewOrgDetailsForm() *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
-			huh.NewInput().Title("Kortnamn/ID (t.ex. SVDK:)").Value(&newOrg.ID),
-			huh.NewInput().Title("Fullt namn:").Value(&newOrg.Name),
-			huh.NewInput().Title("Org.Nr:").Value(&newOrg.Number)))
+			huh.NewInput().Title("Kortnamn/ID (t.ex. SVDK:)").Key("org_id"),
+			huh.NewInput().Title("Fullt namn:").Key("org_name"),
+			huh.NewInput().Title("Org.Nr:").Key("org_number")))
 }
 
 func createChooseOrgForm(orgs map[string]app.Association, title string, allowCreateNew bool) *huh.Form {
@@ -399,6 +399,17 @@ func createOpenTimeStampsForm(currentVal bool) *huh.Form {
 			Description("Tidsstämplar sealed filer via blockkedjieteknik.").
 			Value(new(currentVal))))
 
+}
+
+func createFirstRunForm() *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Key("action").
+				Title("Tom mapp upptäckt!").
+				Description("Det verkar inte finnas något arkiv här.\nVill du initiera ett nytt Föreningsarkiv i denna mapp?").
+				Affirmative("Ja, bygg arkivet!").
+				Negative("Nej, avbryt")))
 }
 
 func createZipForm(currentVal bool) *huh.Form {

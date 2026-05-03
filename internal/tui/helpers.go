@@ -2,12 +2,9 @@ package tui
 
 import (
 	"bufio"
-	"docctl/internal/app"
-	"docctl/internal/assets"
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
@@ -18,38 +15,14 @@ func pausePrompt() {
 	_, _ = bufio.NewReader(os.Stdin).ReadBytes('\n')
 }
 
-func checkFirstRun() error {
+func isFirstRun() bool {
 	cwd, _ := os.Getwd()
 	toolingDir := filepath.Join(cwd, ".tooling")
 
-	// Om .tooling redan finns, är allt frid och fröjd. Avbryt och starta programmet.
-	if _, err := os.Stat(toolingDir); !os.IsNotExist(err) {
-		return nil
+	if _, err := os.Stat(toolingDir); os.IsNotExist(err) {
+		return true
 	}
-
-	// Mappen är tom! Vi frågar användaren om de vill bygga ett arkiv.
-	var confirm bool
-	err := runForm(huh.NewForm(
-		huh.NewGroup(
-			huh.NewConfirm().
-				Title("Tom mapp upptäckt!").
-				Description("Det verkar inte finnas något arkiv här.\nVill du initiera ett nytt Föreningsarkiv i denna mapp?").
-				Affirmative("Ja, bygg arkivet!").
-				Negative("Nej, avbryt").
-				Value(&confirm),
-		),
-	))
-
-	if err != nil || !confirm {
-		fmt.Println("❌ Avbröt. Kör docctl i en befintlig arkivmapp.")
-		os.Exit(0)
-	}
-
-	if err := app.FirstTimeRun(toolingDir, cwd, assets.Files); err != nil {
-		return err
-	}
-	time.Sleep(2 * time.Second)
-	return nil
+	return false
 }
 
 func askSelect(title string, options []huh.Option[string], target *string) error {

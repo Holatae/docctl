@@ -204,10 +204,10 @@ func CreateZipArchive(srcDir string, destZip string) error {
 	})
 }
 
-// firstTimeRun creates all relevant folders and files
+// FirstTimeRun creates all relevant folders and files
 func FirstTimeRun(toolingDir string, cwd string, embeddedFiles embed.FS) (err error) {
-	fmt.Println("\n🚀 Initierar nytt arbetsutrymme...")
-	fmt.Printf("🕵️ AVSLÖJANDE: firstTimeRun sparar mallar i mappen: %s\n", filepath.Join(toolingDir, "mallar"))
+	//fmt.Println("\n🚀 Initierar nytt arbetsutrymme...")
+	//fmt.Printf("🕵️ AVSLÖJANDE: firstTimeRun sparar mallar i mappen: %s\n", filepath.Join(toolingDir, "mallar"))
 
 	// 1. Skapa mappar
 	mallarDir := filepath.Join(toolingDir, "mallar")
@@ -232,7 +232,7 @@ func FirstTimeRun(toolingDir string, cwd string, embeddedFiles embed.FS) (err er
 				if err := os.WriteFile(path, contains, 0o644); err != nil {
 					return fmt.Errorf("cannot write file: %v", err)
 				}
-				fmt.Printf("   -> Packade upp systemmall: %s\n", file.Name())
+				//fmt.Printf("   -> Packade upp systemmall: %s\n", file.Name())
 			}
 		}
 	}
