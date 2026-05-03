@@ -19,9 +19,11 @@ type appState int
 const (
 	stateMainMenu appState = iota
 	stateSettingsMenu
-	stateSystemSettings
 	stateEditZip
 	stateEditOts
+	stateChooseOrgForBuild
+	stateChooseOrgForEdit
+	stateChooseOrgForDoc
 )
 
 type mainModel struct {
@@ -33,6 +35,8 @@ type mainModel struct {
 	mainMenu          *huh.Form
 	settingsMenu      *huh.Form
 	activeSettingForm *huh.Form
+
+	createChoseOrgFormForDocs *huh.Form
 }
 
 func (m mainModel) Init() tea.Cmd {
@@ -55,8 +59,15 @@ func (m mainModel) updateMainMenu(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 		switch action {
 		case "settings":
 			m.state = stateSettingsMenu
+			m.settingsMenu = createMainMenuForm()
 
 			cmds = append(cmds, m.settingsMenu.Init())
+
+		case "init":
+			m.state = stateChooseOrgForDoc
+
+			m.activeSettingForm = createChooseOrgForm(m.cfg.Foreningar, "AARGH", true)
+			cmds = append(cmds, m.activeSettingForm.Init())
 
 			m.mainMenu = createMainMenuForm()
 		case "exit":
@@ -176,6 +187,32 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 
+	case stateChooseOrgForDoc:
+		form, cmd := m.activeSettingForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeSettingForm = f
+		}
+		cmds = append(cmds, cmd)
+
+		if m.activeSettingForm.State == huh.StateCompleted {
+			selectedChoice := m.activeSettingForm.GetString("selected_org")
+
+			switch selectedChoice {
+			case "back":
+				m.state = stateMainMenu
+				cmds = append(cmds, m.mainMenu.Init())
+
+				return m, tea.Batch(cmds...)
+
+			case "create_new":
+				m.state = stateChooseOrgForDoc
+				m.activeSettingForm = createChooseOrgForm(nil, "", true)
+				cmds = append(cmds, m.activeSettingForm.Init())
+
+				return m, tea.Batch(cmds...)
+			}
+
+		}
 	default:
 		panic("unhandled default case")
 	}
@@ -191,6 +228,8 @@ func (m mainModel) View() string {
 	case stateEditZip:
 		return m.activeSettingForm.View()
 	case stateEditOts:
+		return m.activeSettingForm.View()
+	case stateChooseOrgForDoc:
 		return m.activeSettingForm.View()
 	default:
 		return "Eeeh något gick fel"

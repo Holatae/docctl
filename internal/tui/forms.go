@@ -326,6 +326,40 @@ func createSettingsMenuForm() *huh.Form {
 			)))
 }
 
+func askForNewOrgDetailsForm(newOrg OrgDetails) *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().Title("Kortnamn/ID (t.ex. SVDK:)").Value(&newOrg.ID),
+			huh.NewInput().Title("Fullt namn:").Value(&newOrg.Name),
+			huh.NewInput().Title("Org.Nr:").Value(&newOrg.Number)))
+}
+
+func createChooseOrgForm(orgs map[string]app.Association, title string, allowCreateNew bool) *huh.Form {
+
+	var options []huh.Option[string]
+
+	// 1. Visa alla föreningar
+	for _, org := range orgs {
+		if org.Name == "" {
+			continue
+		}
+		showText := fmt.Sprintf("(%s) %s", org.Id, org.Name)
+
+		options = append(options, huh.NewOption(showText, org.Id))
+	}
+	// 2. Ska skapa ny förening visas
+	if allowCreateNew {
+		options = append(options, huh.NewOption("Skapa ny förening ....", "create_new"))
+	}
+
+	// 3. Tillbaka knappen
+	options = append(options, huh.NewOption("Tillbaka", "back"))
+
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Key("selected_org").Title(title).Options(options...)))
+}
+
 func showSettingsMenu() (string, error) {
 	var action string
 

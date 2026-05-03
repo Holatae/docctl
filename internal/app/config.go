@@ -20,6 +20,7 @@ type Config struct {
 }
 
 type Association struct {
+	Id        string   `yaml:"-"`
 	Name      string   `yaml:"namn"`
 	OrgNummer string   `yaml:"org_nummer"`
 	Body      []string `yaml:"organ"`
@@ -49,6 +50,12 @@ func LoadConfig(projRoot string) (Config, error) {
 		return cfg, nil
 	}
 	_ = yaml.Unmarshal(data, &cfg)
+
+	for key, org := range cfg.Foreningar {
+		org.Id = key
+
+		cfg.Foreningar[key] = org
+	}
 	return cfg, nil
 }
 
