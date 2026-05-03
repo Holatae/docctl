@@ -28,12 +28,27 @@ const (
 	stateChooseOrgForDoc
 	stateCreateOrganization
 	stateFirstRun
+	stateCreateBody
+	stateChooseBodyForm
+	stateChooseDocumentTypeForm
+	stateAskDateForm
+	stateChooseGoverningDocumentTypeForm
+	stateCreateNewGoverningDocumentTypeForm
+	stateAskGoverningDocumentNameForm
 )
 
 type mainModel struct {
 	state appState
 	cwd   string
 	cfg   *app.Config
+
+	selectedOrg          app.Association
+	selectedDocumentType string
+	selectedBody         string
+	date                 string
+
+	selectedGoverningDocType string
+	selectedGoverningDocName string
 
 	activeForm *huh.Form
 
@@ -69,7 +84,7 @@ func (m mainModel) updateMainMenu(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "init":
 			m.state = stateChooseOrgForDoc
-
+			*m.cfg, _ = app.LoadConfig(m.cwd)
 			m.activeForm = createChooseOrgForm(m.cfg.Foreningar, "Välj förening", true)
 			cmds = append(cmds, m.activeForm.Init())
 
@@ -190,6 +205,11 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 				m.state = stateMainMenu
 				m.mainMenu = createMainMenuForm()
 				cmds = append(cmds, m.mainMenu.Init())
+			default:
+				m.selectedOrg = m.cfg.Foreningar[action]
+				m.state = stateChooseDocumentTypeForm
+				m.activeForm = chooseDocumentTypeForm()
+				cmds = append(cmds, m.activeForm.Init())
 			}
 		}
 
@@ -243,6 +263,151 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mainMenu = createMainMenuForm()
 			cmds = append(cmds, m.mainMenu.Init())
 		}
+
+	case stateChooseDocumentTypeForm:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+
+		if keyMsg, ok := keyMsg.(tea.KeyMsg); ok {
+			if keyMsg.Type == tea.KeyEsc {
+				m.state = stateChooseOrgForDoc
+				*m.cfg, _ = app.LoadConfig(m.cwd)
+				m.activeForm = createChooseOrgForm(m.cfg.Foreningar, "Välj förening", true)
+				cmds = append(cmds, m.activeForm.Init())
+				return m, tea.Batch(cmds...)
+			}
+		}
+
+		if m.activeForm.State == huh.StateCompleted {
+			documentType := m.activeForm.GetString("document_type")
+			switch documentType {
+			case "protokoll":
+				m.selectedDocumentType = documentType
+
+				m.activeForm = chooseBodyForm(m.selectedOrg)
+				m.state = stateChooseBodyForm
+				cmds = append(cmds, m.activeForm.Init())
+			case "styrdokument":
+				m.selectedDocumentType = documentType
+
+				m.state = stateChooseGoverningDocumentTypeForm
+				m.activeForm = chooseGoverningDocumentTypeForm(m.cwd, m.selectedOrg)
+				cmds = append(cmds, m.activeForm.Init())
+			case "other":
+			}
+		}
+	case stateChooseGoverningDocumentTypeForm:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+
+		if m.activeForm.State == huh.StateCompleted {
+			selectedDocumentType := m.activeForm.GetString("selected_document_type")
+			switch selectedDocumentType {
+			case "create_new":
+				//SKAPA NY STYRDOKUMENT
+				m.state = stateCreateNewGoverningDocumentTypeForm
+				m.activeForm = genericInputForm("Kategorins namn (t.ex. Policy, Reglemente, Stadgar):", "name")
+				cmds = append(cmds, m.activeForm.Init())
+
+			default:
+				m.selectedGoverningDocType = selectedDocumentType
+				m.state = stateAskGoverningDocumentNameForm
+				m.activeForm = genericInputForm("Dokumentets/Filens namn (t.ex. IT-policy):", "name")
+				cmds = append(cmds, m.activeForm.Init())
+			}
+		}
+	case stateCreateNewGoverningDocumentTypeForm:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+		if m.activeForm.State == huh.StateCompleted {
+			name := m.activeForm.GetString("name")
+			err := os.MkdirAll(filepath.Join(m.cwd, m.selectedOrg.Id, "Grundakter", "Styrdokument", name), os.ModePerm)
+			if err != nil {
+				panic(err)
+			}
+			m.state = stateChooseGoverningDocumentTypeForm
+			m.activeForm = chooseGoverningDocumentTypeForm(m.cwd, m.selectedOrg)
+			cmds = append(cmds, m.activeForm.Init())
+
+		}
+	case stateAskGoverningDocumentNameForm:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+		if m.activeForm.State == huh.StateCompleted {
+			name := m.activeForm.GetString("name")
+			_ = app.CreateGuidanceDocuments(m.cwd, m.selectedOrg.Id, m.selectedGoverningDocType, name)
+
+			m.mainMenu = createMainMenuForm()
+			m.state = stateMainMenu
+			cmds = append(cmds, m.mainMenu.Init())
+		}
+	case stateChooseBodyForm:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+		if m.activeForm.State == huh.StateCompleted {
+			body := m.activeForm.GetString("selected_body")
+			switch body {
+
+			case "create_new":
+				m.state = stateCreateBody
+				m.activeForm = genericInputForm("Organets namn (t.ex. utbildningsutskott)", "name")
+				cmds = append(cmds, m.activeForm.Init())
+			default:
+				m.selectedBody = body
+				m.state = stateAskDateForm
+				m.activeForm = genericInputForm("Datum (ÅÅÅÅ-MM-DD):", "date")
+				cmds = append(cmds, m.activeForm.Init())
+			}
+		}
+	case stateCreateBody:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+
+		if m.activeForm.State == huh.StateCompleted {
+			body := m.activeForm.GetString("name")
+			*m.cfg, _ = app.LoadConfig(m.cwd)
+			m.selectedOrg.Body = append(m.selectedOrg.Body, body)
+			m.cfg.Foreningar[m.selectedOrg.Id] = m.selectedOrg
+			_ = app.SaveConfig(m.cwd, *m.cfg)
+
+			m.state = stateChooseBodyForm
+			m.activeForm = chooseBodyForm(m.selectedOrg)
+			cmds = append(cmds, m.activeForm.Init())
+		}
+	case stateAskDateForm:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+		if m.activeForm.State == huh.StateCompleted {
+			date := m.activeForm.GetString("date")
+			m.date = date
+
+			_ = app.CreateProtokoll(m.cwd, m.selectedOrg.Id, m.selectedBody, m.date)
+
+			m.state = stateMainMenu
+			m.mainMenu = createMainMenuForm()
+			cmds = append(cmds, m.mainMenu.Init())
+		}
 	default:
 		panic("unhandled default case")
 	}
@@ -256,7 +421,9 @@ func (m mainModel) View() string {
 		return m.mainMenu.View()
 	case stateSettingsMenu:
 		return m.settingsMenu.View()
-	case stateEditZip, stateEditOts, stateChooseOrgForDoc, stateCreateOrganization, stateFirstRun:
+	case stateEditZip, stateEditOts, stateChooseOrgForDoc, stateCreateOrganization, stateFirstRun,
+		stateChooseDocumentTypeForm, stateChooseBodyForm, stateCreateBody, stateAskDateForm,
+		stateChooseGoverningDocumentTypeForm, stateCreateNewGoverningDocumentTypeForm, stateAskGoverningDocumentNameForm:
 		if m.activeForm == nil {
 			return "Laddar..."
 		}

@@ -401,6 +401,57 @@ func createOpenTimeStampsForm(currentVal bool) *huh.Form {
 
 }
 
+func chooseBodyForm(org app.Association) *huh.Form {
+	var options []huh.Option[string]
+
+	for _, o := range org.Body {
+		options = append(options, huh.NewOption(o, o))
+	}
+	options = append(options, huh.NewOption("Skapa nytt organ ....", "create_new"))
+
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Key("selected_body").Title("Vilket organ?").Options(options...)))
+}
+
+func chooseGoverningDocumentTypeForm(cwd string, org app.Association) *huh.Form {
+	// SKANNA EFTER BEFINTLIGA KATEGORIER: Leta i Grundakter/Styrdokument/
+	subcategoryPath := filepath.Join(cwd, org.Id, "Grundakter", "Styrdokument")
+
+	var categoryOptions []huh.Option[string]
+	entries, err := os.ReadDir(subcategoryPath)
+	if err == nil {
+		for _, e := range entries {
+			if e.IsDir() {
+				categoryOptions = append(categoryOptions, huh.NewOption(e.Name(), e.Name()))
+			}
+		}
+	}
+	categoryOptions = append(categoryOptions, huh.NewOption("➕ Skapa ny kategori...", "create_new"))
+
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Key("selected_document_type").Title("Vilken typ av styrdokument?").Options(categoryOptions...)))
+
+}
+
+func genericInputForm(title string, key string) *huh.Form {
+	return huh.NewForm(huh.NewGroup(
+		huh.NewInput().Title(title).Key(key)))
+}
+
+func chooseDocumentTypeForm() *huh.Form {
+
+	var options []huh.Option[string]
+	options = append(options, huh.NewOption("📝 Protokoll (Årsakter)", "protokoll"))
+	options = append(options, huh.NewOption("📜 Styrdokument/Policy (Grundakter)", "styrdokument"))
+	options = append(options, huh.NewOption("🤝 Andra dokument (Grundakter)", "other"))
+
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Key("document_type").Title("Vad vill du skapa?").Options(options...)))
+}
+
 func createFirstRunForm() *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
