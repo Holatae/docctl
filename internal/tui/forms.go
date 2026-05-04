@@ -567,6 +567,51 @@ func listAllDocumentsFromAssociation(cwd string, org app.Association) *huh.Form 
 			huh.NewSelect[string]().Title("Vilket dokument?").Options(docsOptions...).Key("document")))
 }
 
+func listAllBuildDocumentsFromAssociation(cwd string, org app.Association) *huh.Form {
+	searchPath := filepath.Join(cwd, org.Id)
+	var docsOptions []huh.Option[string]
+
+	_ = filepath.WalkDir(searchPath, func(path string, d fs.DirEntry, err error) error {
+		// 1. Fånga alltid eventuella fel först (t.ex. om programmet inte har behörighet att läsa en mapp)
+		if err != nil {
+			return nil // Hoppa över mappen istället för att krascha
+		}
+
+		if d.IsDir() && d.Name() == "arkiv" {
+
+			// 2. Använd Glob för att hitta alla PDF:er INUTI "arkiv"-mappen
+			// filepath.Join(path, "*.pdf") blir t.ex. "C:\min_mapp\arkiv\*.pdf"
+			pdfFiles, globErr := filepath.Glob(filepath.Join(path, "*.pdf"))
+
+			// 3. Om inga fel uppstod och vi hittade minst 1 PDF
+			if globErr == nil && len(pdfFiles) > 0 {
+
+				// Hämta relativa sökvägen för föräldramappen (precis som du gjorde!)
+				relPath, _ := filepath.Rel(searchPath, filepath.Dir(path))
+				docsOptions = append(docsOptions, huh.NewOption(relPath, relPath))
+			}
+
+			// 4. OPTIMERING: Eftersom vi redan har hittat och undersökt "arkiv",
+			// behöver vi inte loopa igenom alla filer inuti den för att hitta fler "arkiv"-mappar.
+			return filepath.SkipDir
+		}
+
+		return nil
+	})
+
+	if len(docsOptions) == 0 {
+		docsOptions = append(docsOptions, huh.NewOption("Gå tillbaka", "back"))
+		return huh.NewForm(
+			huh.NewGroup(
+				huh.NewSelect[string]().Title("Inga dokument hittades").Options(docsOptions...).Key("document")))
+	}
+	docsOptions = append(docsOptions, huh.NewOption("Gå tillbaka", "back"))
+
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Title("Vilket dokument?").Options(docsOptions...).Key("document")))
+}
+
 func askGenericYesOrNowForm(title string, description string, key string) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(

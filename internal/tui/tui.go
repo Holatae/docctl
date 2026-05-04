@@ -25,6 +25,8 @@ const (
 	stateEditOts
 	stateChooseOrgForBuild
 	stateChooseOrgForSeal
+	stateChooseDocumentToSeal
+	stateAskForPGPKey
 	stateChooseOrgForDoc
 	stateCreateOrganization
 	stateFirstRun
@@ -40,6 +42,7 @@ const (
 	stateCreateOtherDocumentTypeForm
 	stateChooseDocumentToBuild
 	stateAskIfUserWantToNukeSealedDocument
+	stateAskIfUserWantToNukeSealedDocumentForSealedDocument
 )
 
 type mainModel struct {
@@ -53,6 +56,7 @@ type mainModel struct {
 	date                    string
 	force                   bool
 	selectedDocumentToBuild string
+	selectedDocumentToSeal  string
 
 	selectedGoverningDocType string
 	selectedGoverningDocName string
@@ -100,6 +104,11 @@ func (m mainModel) updateMainMenu(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 		case "build":
 			m.state = stateChooseOrgForBuild
+			m.activeForm = createChooseOrgForm(m.cfg.Foreningar, "Välj förening", false)
+			cmds = append(cmds, m.activeForm.Init())
+
+		case "seal":
+			m.state = stateChooseOrgForSeal
 			m.activeForm = createChooseOrgForm(m.cfg.Foreningar, "Välj förening", false)
 			cmds = append(cmds, m.activeForm.Init())
 		case "exit":
@@ -184,6 +193,100 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 		}
 
+	case stateChooseOrgForSeal:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+		if m.activeForm.State == huh.StateCompleted {
+			selectedOrgId := m.activeForm.GetString("selected_org")
+			*m.cfg, _ = app.LoadConfig(m.cwd)
+			m.selectedOrg = m.cfg.Foreningar[selectedOrgId]
+			m.state = stateChooseDocumentToSeal
+			m.activeForm = listAllBuildDocumentsFromAssociation(m.cwd, m.selectedOrg)
+			cmds = append(cmds, m.activeForm.Init())
+		}
+
+	case stateChooseDocumentToSeal:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+
+		if m.force {
+			m.state = stateAskForPGPKey
+			m.activeForm = genericInputForm("Ange GPG E-post/ID:", "pgp")
+			cmds = append(cmds, m.activeForm.Init())
+		}
+
+		if m.activeForm.State == huh.StateCompleted {
+			m.selectedDocumentToSeal = m.activeForm.GetString("document")
+
+			switch m.selectedDocumentToSeal {
+			case "back":
+				m.state = stateMainMenu
+				m.mainMenu = createMainMenuForm()
+				cmds = append(cmds, m.mainMenu.Init())
+			default:
+				sigPath := filepath.Join(filepath.Dir(m.selectedDocumentToBuild), "arkiv", "ATTESTATION.md.sig")
+
+				if _, err := os.Stat(sigPath); err == nil {
+					m.state = stateAskIfUserWantToNukeSealedDocumentForSealedDocument
+					m.activeForm = askGenericYesOrNowForm("⚠️ Arkivet/Avtalet är förseglat!", " Seals det om raderas signaturen. Fortsätta?", "action")
+					cmds = append(cmds, m.activeForm.Init())
+				}
+
+				m.state = stateAskForPGPKey
+				m.activeForm = genericInputForm("Ange GPG E-post/ID:", "pgp")
+				cmds = append(cmds, m.activeForm.Init())
+
+			}
+			// Check if it is already sealed
+		}
+
+	case stateAskIfUserWantToNukeSealedDocumentForSealedDocument:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+		if m.activeForm.State == huh.StateCompleted {
+			m.force = m.activeForm.GetBool("action")
+
+			if m.force == false {
+				m.state = stateMainMenu
+				m.mainMenu = createMainMenuForm()
+				cmds = append(cmds, m.mainMenu.Init())
+			}
+			//TODO DETTA KAN VARA HELT FEL
+			if m.force == true {
+				m.state = stateChooseDocumentToSeal
+				m.mainMenu = createMainMenuForm()
+				cmds = append(cmds, m.mainMenu.Init())
+			}
+		}
+
+	case stateAskForPGPKey:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+
+		if m.activeForm.State == huh.StateCompleted {
+			pgpKey := m.activeForm.GetString("pgp")
+			err := app.DoSeal(filepath.Join(m.selectedOrg.Id, m.selectedDocumentToSeal, "källor"), pgpKey, m.force)
+			if err != nil {
+				fmt.Println(err)
+			}
+			m.force = false
+
+			m.state = stateMainMenu
+			m.mainMenu = createMainMenuForm()
+			cmds = append(cmds, m.mainMenu.Init())
+		}
 	case stateChooseDocumentToBuild:
 		form, cmd := m.activeForm.Update(keyMsg)
 		if f, ok := form.(*huh.Form); ok {
@@ -192,7 +295,7 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 		cmds = append(cmds, cmd)
 
 		if m.force {
-			app.DoBuild(m.selectedDocumentToBuild, m.force)
+			app.DoBuild(filepath.Join(m.selectedOrg.Id, m.selectedDocumentToBuild, "källor"), m.force)
 			m.force = false
 
 			m.state = stateMainMenu
@@ -595,7 +698,8 @@ func (m mainModel) View() string {
 		stateChooseDocumentTypeForm, stateChooseBodyForm, stateCreateBody, stateAskDateForm,
 		stateChooseGoverningDocumentTypeForm, stateCreateNewGoverningDocumentTypeForm, stateAskGoverningDocumentNameForm,
 		stateChooseOtherDocumentType, stateChooseOtherDocumentCategoryNameForm, stateCreateOtherDocumentTypeForm,
-		stateChooseOrgForBuild, stateChooseDocumentToBuild, stateAskIfUserWantToNukeSealedDocument:
+		stateChooseOrgForBuild, stateChooseDocumentToBuild, stateAskIfUserWantToNukeSealedDocument,
+		stateChooseOrgForSeal, stateChooseDocumentToSeal, stateAskForPGPKey, stateAskIfUserWantToNukeSealedDocumentForSealedDocument:
 		if m.activeForm == nil {
 			return "Laddar..."
 		}

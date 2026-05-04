@@ -18,13 +18,11 @@ func DoSeal(kallorPath string, key string, force bool) (err error) {
 	pubKeyPath := filepath.Join(arkivDir, "PUBLIC_KEY.asc")
 
 	if _, err := os.Stat(arkivDir); os.IsNotExist(err) {
-		fmt.Println("❌ Hittar inte arkiv-mappen! Kör 'build' först.")
-		os.Exit(1)
+		return fmt.Errorf("❌ Hittar inte arkiv-mappen! Kör 'build' först.")
 	}
 
 	if _, err := os.Stat(sigPath); err == nil && !force {
-		fmt.Println("❌ AVSLAGET: Arkivet är redan förseglat! Kör med --force.")
-		os.Exit(1)
+		return fmt.Errorf("❌ AVSLAGET: Arkivet är redan förseglat! Kör med --force.")
 	}
 
 	fmt.Println("🔒 Förseglar arkivet...")
