@@ -24,7 +24,7 @@ const (
 	stateEditZip
 	stateEditOts
 	stateChooseOrgForBuild
-	stateChooseOrgForEdit
+	stateChooseOrgForSeal
 	stateChooseOrgForDoc
 	stateCreateOrganization
 	stateFirstRun
@@ -38,6 +38,8 @@ const (
 	stateChooseOtherDocumentType
 	stateChooseOtherDocumentCategoryNameForm
 	stateCreateOtherDocumentTypeForm
+	stateChooseDocumentToBuild
+	stateAskIfUserWantToNukeSealedDocument
 )
 
 type mainModel struct {
@@ -45,10 +47,12 @@ type mainModel struct {
 	cwd   string
 	cfg   *app.Config
 
-	selectedOrg          app.Association
-	selectedDocumentType string
-	selectedBody         string
-	date                 string
+	selectedOrg             app.Association
+	selectedDocumentType    string
+	selectedBody            string
+	date                    string
+	force                   bool
+	selectedDocumentToBuild string
 
 	selectedGoverningDocType string
 	selectedGoverningDocName string
@@ -93,6 +97,11 @@ func (m mainModel) updateMainMenu(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 			cmds = append(cmds, m.activeForm.Init())
 
 			m.mainMenu = createMainMenuForm()
+
+		case "build":
+			m.state = stateChooseOrgForBuild
+			m.activeForm = createChooseOrgForm(m.cfg.Foreningar, "Välj förening", false)
+			cmds = append(cmds, m.activeForm.Init())
 		case "exit":
 			return m, tea.Quit
 		}
@@ -156,6 +165,86 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 	case stateSettingsMenu:
 		return m.updateSettingsMenu(keyMsg)
 
+	case stateChooseOrgForBuild:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+
+		if m.activeForm.State == huh.StateCompleted {
+			selectedOrgId := m.activeForm.GetString("selected_org")
+			*m.cfg, _ = app.LoadConfig(m.cwd)
+
+			m.selectedOrg = m.cfg.Foreningar[selectedOrgId]
+
+			m.state = stateChooseDocumentToBuild
+			m.activeForm = listAllDocumentsFromAssociation(m.cwd, m.selectedOrg)
+			cmds = append(cmds, m.activeForm.Init())
+
+		}
+
+	case stateChooseDocumentToBuild:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+
+		if m.force {
+			app.DoBuild(m.selectedDocumentToBuild, m.force)
+			m.force = false
+
+			m.state = stateMainMenu
+			m.mainMenu = createSettingsMenuForm()
+			cmds = append(cmds, m.mainMenu.Init())
+		}
+
+		if m.activeForm.State == huh.StateCompleted {
+			m.selectedDocumentToBuild = m.activeForm.GetString("document")
+			switch m.selectedDocumentToBuild {
+			case "back":
+				m.state = stateMainMenu
+				m.mainMenu = createMainMenuForm()
+				cmds = append(cmds, m.mainMenu.Init())
+			default:
+				sigPath := filepath.Join(filepath.Dir(m.selectedDocumentToBuild), "arkiv", "ATTESTATION.md.sig")
+
+				if _, err := os.Stat(sigPath); err == nil {
+					m.state = stateAskIfUserWantToNukeSealedDocument
+					m.activeForm = askGenericYesOrNowForm("⚠️ Arkivet/Avtalet är förseglat!", " Byggs det om raderas signaturen. Fortsätta?", "action")
+					cmds = append(cmds, m.activeForm.Init())
+				}
+				app.DoBuild(filepath.Join(m.selectedOrg.Id, m.selectedDocumentToBuild, "källor"), m.force)
+				m.force = false
+
+				m.state = stateMainMenu
+				m.mainMenu = createMainMenuForm()
+				cmds = append(cmds, m.mainMenu.Init())
+			}
+		}
+
+	case stateAskIfUserWantToNukeSealedDocument:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+		if m.activeForm.State == huh.StateCompleted {
+			m.force = m.activeForm.GetBool("action")
+
+			if m.force == false {
+				m.state = stateMainMenu
+				m.mainMenu = createMainMenuForm()
+				cmds = append(cmds, m.mainMenu.Init())
+			}
+			//TODO DETTA KAN VARA HELT FEL
+			if m.force == true {
+				m.state = stateChooseDocumentToBuild
+				m.mainMenu = createMainMenuForm()
+				cmds = append(cmds, m.mainMenu.Init())
+			}
+		}
 	case stateEditZip:
 		form, cmd := m.activeForm.Update(keyMsg)
 		if f, ok := form.(*huh.Form); ok {
@@ -505,7 +594,8 @@ func (m mainModel) View() string {
 	case stateEditZip, stateEditOts, stateChooseOrgForDoc, stateCreateOrganization, stateFirstRun,
 		stateChooseDocumentTypeForm, stateChooseBodyForm, stateCreateBody, stateAskDateForm,
 		stateChooseGoverningDocumentTypeForm, stateCreateNewGoverningDocumentTypeForm, stateAskGoverningDocumentNameForm,
-		stateChooseOtherDocumentType, stateChooseOtherDocumentCategoryNameForm, stateCreateOtherDocumentTypeForm:
+		stateChooseOtherDocumentType, stateChooseOtherDocumentCategoryNameForm, stateCreateOtherDocumentTypeForm,
+		stateChooseOrgForBuild, stateChooseDocumentToBuild, stateAskIfUserWantToNukeSealedDocument:
 		if m.activeForm == nil {
 			return "Laddar..."
 		}

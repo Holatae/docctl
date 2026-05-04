@@ -3,6 +3,7 @@ package tui
 import (
 	"docctl/internal/app"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -537,4 +538,40 @@ func askToggleSetting(title string, currentValue bool) (bool, error) {
 	}
 
 	return newValue, nil
+}
+
+func listAllDocumentsFromAssociation(cwd string, org app.Association) *huh.Form {
+	searchPath := filepath.Join(cwd, org.Id)
+	var docsOptions []huh.Option[string]
+
+	_ = filepath.WalkDir(searchPath, func(path string, d fs.DirEntry, err error) error {
+
+		if d != nil && d.IsDir() && d.Name() == "källor" {
+
+			relPath, _ := filepath.Rel(searchPath, filepath.Dir(path))
+			docsOptions = append(docsOptions, huh.NewOption(relPath, relPath))
+		}
+		return nil
+	})
+
+	if len(docsOptions) == 0 {
+		docsOptions = append(docsOptions, huh.NewOption("Gå tillbaka", "back"))
+		return huh.NewForm(
+			huh.NewGroup(
+				huh.NewSelect[string]().Title("Inga dokument hittades").Options(docsOptions...).Key("document")))
+	}
+	docsOptions = append(docsOptions, huh.NewOption("Gå tillbaka", "back"))
+
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Title("Vilket dokument?").Options(docsOptions...).Key("document")))
+}
+
+func askGenericYesOrNowForm(title string, description string, key string) *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Key(key).
+				Title(title).
+				Description(description))).WithTheme(huh.ThemeBase16())
 }
