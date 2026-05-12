@@ -1,11 +1,12 @@
 package tui
 
 import (
-	"docctl/internal/app"
-	"docctl/internal/assets"
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"docctl/internal/app"
+	"docctl/internal/assets"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/huh"
@@ -260,7 +261,7 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mainMenu = createMainMenuForm()
 				cmds = append(cmds, m.mainMenu.Init())
 			}
-			//TODO DETTA KAN VARA HELT FEL
+			// TODO DETTA KAN VARA HELT FEL
 			if m.force == true {
 				m.state = stateChooseDocumentToSeal
 				m.mainMenu = createMainMenuForm()
@@ -341,7 +342,7 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mainMenu = createMainMenuForm()
 				cmds = append(cmds, m.mainMenu.Init())
 			}
-			//TODO DETTA KAN VARA HELT FEL
+			// TODO DETTA KAN VARA HELT FEL
 			if m.force == true {
 				m.state = stateChooseDocumentToBuild
 				m.mainMenu = createMainMenuForm()
@@ -461,7 +462,7 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 
 			} else {
-				tea.Quit()
+				return m, tea.Quit
 			}
 			*m.cfg, _ = app.LoadConfig(m.cwd)
 			m.state = stateMainMenu
@@ -573,7 +574,7 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 			selectedDocumentType := m.activeForm.GetString("selected_document_type")
 			switch selectedDocumentType {
 			case "create_new":
-				//SKAPA NY STYRDOKUMENT
+				// SKAPA NY STYRDOKUMENT
 				m.state = stateCreateNewGoverningDocumentTypeForm
 				m.activeForm = genericInputForm("Kategorins namn (t.ex. Policy, Reglemente, Stadgar):", "name")
 				cmds = append(cmds, m.activeForm.Init())
@@ -710,7 +711,6 @@ func (m mainModel) View() string {
 }
 
 func StartTUI() error {
-
 	cwd, _ := os.Getwd()
 	cfg := app.Config{}
 
@@ -735,7 +735,6 @@ func StartTUI() error {
 		return err
 	}
 	return nil
-
 }
 
 func runSettingsFlow(context *AppContext) {
@@ -763,7 +762,6 @@ func runSettingsFlow(context *AppContext) {
 		}
 	case "redigera_org":
 		selectedOrg, err := askForAssociationForm(context)
-
 		if err != nil {
 			fmt.Println(err)
 		}
