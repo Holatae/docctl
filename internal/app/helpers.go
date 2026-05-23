@@ -270,6 +270,36 @@ arkiv/*.docx
 	return nil
 }
 
+// UpdateTemplates overwrites all embedded standard templates in the active workspace's .tooling/mallar/ directory
+func UpdateTemplates(cwd string, embeddedFiles embed.FS) error {
+	toolingDir := filepath.Join(cwd, ".tooling")
+	mallarDir := filepath.Join(toolingDir, "mallar")
+
+	if err := os.MkdirAll(mallarDir, 0o755); err != nil {
+		return fmt.Errorf("could not create mallar directory: %w", err)
+	}
+
+	files, err := embeddedFiles.ReadDir("embeds")
+	if err != nil {
+		return fmt.Errorf("could not read embedded templates: %w", err)
+	}
+
+	for _, file := range files {
+		if !file.IsDir() {
+			contains, err := embeddedFiles.ReadFile("embeds/" + file.Name())
+			if err != nil {
+				return fmt.Errorf("could not read embedded file %s: %w", file.Name(), err)
+			}
+			path := filepath.Join(mallarDir, file.Name())
+			if err := os.WriteFile(path, contains, 0o644); err != nil {
+				return fmt.Errorf("could not write file %s: %w", file.Name(), err)
+			}
+		}
+	}
+
+	return nil
+}
+
 func CreateProtokoll(cwd string, orgId string, body string, date string) error {
 	cfg, _ := LoadConfig(cwd)
 
