@@ -323,6 +323,7 @@ func createSettingsMenuForm() *huh.Form {
 				huh.NewOption("✏️ Redigera befintlig förening", "redigera_org"),
 				huh.NewOption("📦 Hantera ZIP-arkivering (AIP)", "toggle_zip"),
 				huh.NewOption("🕑 Hantera Opentimestamps", "toggle_ots"),
+				huh.NewOption("🔄 Uppdatera standardmallar", "update_templates"),
 				huh.NewOption("⬅️ Tillbaka till Huvudmenyn", "back"),
 			)))
 }
@@ -369,12 +370,24 @@ func showSettingsMenu() (string, error) {
 		huh.NewOption("✏️ Redigera befintlig förening", "redigera_org"),
 		huh.NewOption("📦 Hantera ZIP-arkivering (AIP)", "toggle_zip"),
 		huh.NewOption("🕑 Hantera Opentimestamps", "toggle_ots"),
+		huh.NewOption("🔄 Uppdatera standardmallar", "update_templates"),
 		huh.NewOption("⬅️ Tillbaka till Huvudmenyn", "back"),
 	}
 
 	err := askSelect("⚙️ Inställningar", options, &action)
 
 	return action, err
+}
+
+func askConfirmTemplateUpdateForm() *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Key("confirm").
+				Title("🔄 Uppdatera standardmallar?").
+				Description("Detta kommer att skriva över ALLA standardmallar i .tooling/mallar/ med de inbyggda originalmallarna. Eventuella egna ändringar i dessa filer kommer att gå förlorade.").
+				Affirmative("Ja, skriv över mallarna!").
+				Negative("Nej, avbryt"))).WithTheme(huh.ThemeBase16())
 }
 
 func askForNewOrgDetails() (OrgDetails, error) {

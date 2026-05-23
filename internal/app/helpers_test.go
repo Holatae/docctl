@@ -122,3 +122,45 @@ func TestAddingOrganization(t *testing.T) {
 		t.Errorf("Missing expected file %s", expectedFile)
 	}
 }
+
+func TestUpdateTemplates(t *testing.T) {
+	cwd := t.TempDir()
+	toolingDir := filepath.Join(cwd, ".tooling")
+
+	// First initialization
+	err := FirstTimeRun(toolingDir, cwd, assets.Files)
+	if err != nil {
+		t.Fatalf("Failed to initialize tooling: %s", err)
+	}
+
+	mallarDir := filepath.Join(toolingDir, "mallar")
+	testFilePath := filepath.Join(mallarDir, "basmall.typ")
+
+	// Modify one of the templates in the destination to see if it gets overwritten
+	originalContent, err := os.ReadFile(testFilePath)
+	if err != nil {
+		t.Fatalf("Failed to read basmall.typ: %s", err)
+	}
+
+	err = os.WriteFile(testFilePath, []byte("MODIFIED_CONTENT_FOR_TESTING"), 0644)
+	if err != nil {
+		t.Fatalf("Failed to write modified basmall.typ: %s", err)
+	}
+
+	// Now run UpdateTemplates
+	err = UpdateTemplates(cwd, assets.Files)
+	if err != nil {
+		t.Fatalf("Failed to update templates: %s", err)
+	}
+
+	// Read content again, it should match the original content
+	updatedContent, err := os.ReadFile(testFilePath)
+	if err != nil {
+		t.Fatalf("Failed to read updated basmall.typ: %s", err)
+	}
+
+	if string(updatedContent) != string(originalContent) {
+		t.Errorf("Expected template to be restored to original content, but got: %s", string(updatedContent))
+	}
+}
+

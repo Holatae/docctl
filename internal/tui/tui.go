@@ -44,6 +44,7 @@ const (
 	stateChooseDocumentToBuild
 	stateAskIfUserWantToNukeSealedDocument
 	stateAskIfUserWantToNukeSealedDocumentForSealedDocument
+	stateConfirmTemplateUpdate
 )
 
 type mainModel struct {
@@ -148,6 +149,11 @@ func (m mainModel) updateSettingsMenu(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 		case "toggle_ots":
 			m.activeForm = createOpenTimeStampsForm(m.cfg.Settings.UseOpenTimeStamps)
 			m.state = stateEditOts
+			m.settingsMenu = createSettingsMenuForm()
+			cmds = append(cmds, m.activeForm.Init())
+		case "update_templates":
+			m.activeForm = askConfirmTemplateUpdateForm()
+			m.state = stateConfirmTemplateUpdate
 			m.settingsMenu = createSettingsMenuForm()
 			cmds = append(cmds, m.activeForm.Init())
 		case "back":
@@ -682,6 +688,21 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.mainMenu = createMainMenuForm()
 			cmds = append(cmds, m.mainMenu.Init())
 		}
+	case stateConfirmTemplateUpdate:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+		if m.activeForm.State == huh.StateCompleted {
+			confirm := m.activeForm.GetBool("confirm")
+			if confirm {
+				_ = app.UpdateTemplates(m.cwd, assets.Files)
+			}
+			m.settingsMenu = createSettingsMenuForm()
+			m.state = stateSettingsMenu
+			cmds = append(cmds, m.settingsMenu.Init())
+		}
 	default:
 		panic("unhandled default case")
 	}
@@ -700,7 +721,8 @@ func (m mainModel) View() string {
 		stateChooseGoverningDocumentTypeForm, stateCreateNewGoverningDocumentTypeForm, stateAskGoverningDocumentNameForm,
 		stateChooseOtherDocumentType, stateChooseOtherDocumentCategoryNameForm, stateCreateOtherDocumentTypeForm,
 		stateChooseOrgForBuild, stateChooseDocumentToBuild, stateAskIfUserWantToNukeSealedDocument,
-		stateChooseOrgForSeal, stateChooseDocumentToSeal, stateAskForPGPKey, stateAskIfUserWantToNukeSealedDocumentForSealedDocument:
+		stateChooseOrgForSeal, stateChooseDocumentToSeal, stateAskForPGPKey, stateAskIfUserWantToNukeSealedDocumentForSealedDocument,
+		stateConfirmTemplateUpdate:
 		if m.activeForm == nil {
 			return "Laddar..."
 		}
