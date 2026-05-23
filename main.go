@@ -94,6 +94,20 @@ var initCmd = &cobra.Command{
 	Short: "Use for initialization of directory",
 }
 
+var updateTemplatesCmd = &cobra.Command{
+	Use:   "update-templates",
+	Short: "Skriver över alla inbyggda standardmallar i .tooling/mallar",
+	Run: func(cmd *cobra.Command, args []string) {
+		cwd, _ := os.Getwd()
+		err := app.UpdateTemplates(cwd, assets.Files)
+		if err != nil {
+			fmt.Printf("Fel vid uppdatering av mallar: %v\n", err)
+			os.Exit(1)
+		}
+		fmt.Println("✅ Alla standardmallar har uppdaterats och skrivits över framgångsrikt!")
+	},
+}
+
 func main() {
 	sealCmd.Flags().StringP("key", "k", "", "GPG Key")
 	_ = sealCmd.MarkFlagRequired("key")
@@ -102,7 +116,7 @@ func main() {
 
 	// Init behövs inte längre via argument nu när TUI ritar upp miljön så bra,
 	// men vi behåller rootCmd för gränssnittet.
-	rootCmd.AddCommand(buildCmd, sealCmd, initCmd, orgCmd)
+	rootCmd.AddCommand(buildCmd, sealCmd, initCmd, orgCmd, updateTemplatesCmd)
 	if err := rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
