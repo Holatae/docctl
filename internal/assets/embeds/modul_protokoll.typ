@@ -51,8 +51,8 @@
 
     // Signatursidan
     #let signaturer = ()
-    #if ordforande != none { signaturer.push((roll: "Ordförande", namn: ordforande)) }
-    #if sekreterare != none { signaturer.push((roll: "Sekreterare", namn: sekreterare)) }
+    #if ordforande != none { signaturer.push((roll: "Mötesordförande", namn: ordforande)) }
+    #if sekreterare != none { signaturer.push((roll: "Mötessekreterare", namn: sekreterare)) }
     #for j in justerare { signaturer.push((roll: "Justerare", namn: j)) }
 
     #if signaturer.len() > 0 {

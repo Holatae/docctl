@@ -6,302 +6,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/charmbracelet/huh"
 )
-
-type OrgDetails struct {
-	ID     string
-	Name   string
-	Number string
-}
-
-func runActionFlow(action string) {
-	cwd, _ := os.Getwd()
-	cfg, _ := app.LoadConfig(cwd)
-	var valdOrg string
-
-	var orgOptions []huh.Option[string]
-	for key := range cfg.Foreningar {
-		if key == "" {
-			continue
-		}
-		orgOptions = append(orgOptions, huh.NewOption(key, key))
-	}
-	if len(orgOptions) == 0 {
-		fmt.Println("❌ Inga föreningar inlagda.")
-		pausePrompt()
-		return
-	}
-
-	if askSelect("Vilken förening?", orgOptions, &valdOrg) != nil {
-		return
-	} // ESC -> Huvudmeny
-
-	// Sök i hela föreningens mapp (Både Årsakter och Grundakter)
-	sokvag := filepath.Join(cwd, valdOrg)
-	var motenOptions []huh.Option[string]
-
-	_ = filepath.WalkDir(sokvag, func(path string, d os.DirEntry, err error) error {
-		// Hitta alla "källor"-mappar
-		if d != nil && d.IsDir() && d.Name() == "källor" {
-			// För Seal: Filtrera bort Styrdokument eftersom de bara lever i Git och inte ska låsas.
-			if action == "seal" && strings.Contains(path, "Styrdokument") {
-				return nil
-			}
-
-			relPath, _ := filepath.Rel(sokvag, filepath.Dir(path))
-			motenOptions = append(motenOptions, huh.NewOption(relPath, path))
-		}
-		return nil
-	})
-
-	if len(motenOptions) == 0 {
-		if action == "seal" {
-			fmt.Println("❌ Hittade inga dokument som kan förseglas (Styrdokument förseglas inte här).")
-		} else {
-			fmt.Println("❌ Hittade inga dokument att bygga.")
-		}
-		pausePrompt()
-		return
-	}
-
-	var valdKalla string
-	if askSelect("Vilket dokument?", motenOptions, &valdKalla) != nil {
-		return
-	} // ESC
-
-	if action == "build" {
-		sigPath := filepath.Join(filepath.Dir(valdKalla), "arkiv", "ATTESTATION.md.sig")
-		force := false
-		if _, err := os.Stat(sigPath); err == nil {
-			var confirm bool
-			if askConfirm("⚠️ Arkivet/Avtalet är förseglat! Byggs det om raderas signaturen. Fortsätta?", &confirm) != nil || !confirm {
-				fmt.Println("❌ Avbrutet.")
-				pausePrompt()
-				return
-			}
-			force = true
-		}
-		if err := app.DoBuild(valdKalla, force); err != nil {
-			fmt.Printf("Failed to build %v\n", err)
-		}
-		pausePrompt()
-
-	} else if action == "seal" {
-		sigPath := filepath.Join(filepath.Dir(valdKalla), "arkiv", "ATTESTATION.md.sig")
-		force := false
-		if _, err := os.Stat(sigPath); err == nil {
-			var confirm bool
-			if askConfirm("⚠️ Detta är redan förseglat! Vill du skriva över signaturen?", &confirm) != nil || !confirm {
-				fmt.Println("❌ Avbrutet.")
-				pausePrompt()
-				return
-			}
-			force = true
-		}
-
-		var gpgKey string
-		if askInput("Ange GPG E-post/ID:", &gpgKey) != nil || gpgKey == "" {
-			return
-		}
-		if err := app.DoSeal(valdKalla, gpgKey, force); err != nil {
-			fmt.Println(err)
-		}
-		pausePrompt()
-	}
-}
-
-func runInitFlow() error {
-	cwd, _ := os.Getwd()
-	cfg, _ := app.LoadConfig(cwd)
-	var valdOrg, dokTyp, datum, organ, dokNamn string
-
-	// 1. VÄLJ FÖRENING
-	var orgOptions []huh.Option[string]
-	for key, f := range cfg.Foreningar {
-		if key == "" {
-			continue
-		}
-		orgOptions = append(orgOptions, huh.NewOption(fmt.Sprintf("%s (%s)", key, f.Name), key))
-	}
-	orgOptions = append(orgOptions, huh.NewOption("➕ Lägg till ny förening...", "_NEW_ORG"))
-
-	if askSelect("Vilken förening?", orgOptions, &valdOrg) != nil {
-		return nil
-	} // ESC
-
-	if valdOrg == "_NEW_ORG" {
-		var nyID, nyNamn, nyOrgNr string
-		err := runForm(huh.NewForm(
-			huh.NewGroup(
-				huh.NewInput().Title("Kortnamn/ID:").Value(&nyID),
-				huh.NewInput().Title("Fullt namn:").Value(&nyNamn),
-				huh.NewInput().Title("Org.Nr:").Value(&nyOrgNr),
-			),
-		))
-		if err != nil || nyID == "" {
-			return nil
-		}
-
-		if err := app.CreateOrganization(cwd, nyID, nyNamn, nyOrgNr); err != nil {
-			return err
-		}
-		valdOrg = nyID
-
-		cfg, _ = app.LoadConfig(cwd)
-	}
-
-	// 2. VÄLJ DOKUMENTTYP
-
-	// 2. VÄLJ HUVUDKATEGORI
-	huvudKategoriOptions := []huh.Option[string]{
-		huh.NewOption("📝 Protokoll (Årsakter)", "protokoll"),
-		huh.NewOption("📜 Styrdokument/Policy (Grundakter)", "styrdokument"),
-		huh.NewOption("🤝 Andra dokument (Grundakter)", "other"),
-	}
-	if askSelect("Vad vill du skapa?", huvudKategoriOptions, &dokTyp) != nil {
-		return nil
-	}
-
-	var basePath, mdPath string
-
-	// 3. LOGIK BASERAT PÅ VALD KATEGORI
-	switch dokTyp {
-	case "protokoll":
-		currentAssociation := cfg.Foreningar[valdOrg]
-		var organOptions []huh.Option[string]
-		for _, o := range currentAssociation.Body {
-			organOptions = append(organOptions, huh.NewOption(o, o))
-		}
-		organOptions = append(organOptions, huh.NewOption("➕ Nytt organ...", "_NEW_ORGAN"))
-		if askSelect("Vilket organ?", organOptions, &organ) != nil {
-			return nil
-		}
-
-		if organ == "_NEW_ORGAN" {
-			if askInput("Organets namn (t.ex. festkommitté):", &organ) != nil || organ == "" {
-				return nil
-			}
-			currentAssociation.Body = append(currentAssociation.Body, organ)
-			cfg.Foreningar[valdOrg] = currentAssociation
-			if err := app.SaveConfig(cwd, cfg); err != nil {
-				return err
-			}
-		}
-		if askInput("Datum (ÅÅÅÅ-MM-DD):", &datum) != nil || len(datum) < 4 {
-			return nil
-		}
-
-		err := app.CreateProtokoll(cwd, valdOrg, organ, datum)
-		if err != nil {
-			return err
-		}
-
-	case "styrdokument":
-
-		// SKANNA EFTER BEFINTLIGA KATEGORIER: Leta i Grundakter/Styrdokument/
-		subcategoryPath := filepath.Join(cwd, valdOrg, "Grundakter", "Styrdokument")
-		var subcategory string
-
-		var categoryOptions []huh.Option[string]
-		entries, err := os.ReadDir(subcategoryPath)
-		if err == nil {
-			for _, e := range entries {
-				if e.IsDir() {
-					categoryOptions = append(categoryOptions, huh.NewOption(e.Name(), e.Name()))
-				}
-			}
-		}
-		categoryOptions = append(categoryOptions, huh.NewOption("➕ Skapa ny kategori...", "_NEW_KAT"))
-
-		if askSelect("Vilken typ av styrdokument?", categoryOptions, &subcategory) != nil {
-			return nil
-		}
-
-		if subcategory == "_NEW_KAT" {
-			if askInput("Kategorins namn (t.ex. Policy, Reglemente, Stadgar):", &subcategory) != nil || subcategory == "" {
-				return nil
-			}
-			// Ersätt ev. mellanslag så att den är säker för mappar
-			subcategory = strings.ReplaceAll(subcategory, " ", "_")
-		}
-
-		if askInput("Dokumentets/Filens namn (t.ex. IT-policy):", &dokNamn) != nil || dokNamn == "" {
-			return nil
-		}
-
-		err = app.CreateGuidanceDocuments(cwd, valdOrg, subcategory, dokNamn)
-		if err != nil {
-			return err
-		}
-
-	case "other":
-
-		subcategoryPath := filepath.Join(cwd, valdOrg, "Grundakter")
-
-		var categoryOptions []huh.Option[string]
-		var subCategory string
-
-		entries, err := os.ReadDir(subcategoryPath)
-		if err == nil {
-			for _, e := range entries {
-				if e.IsDir() {
-					if e.Name() == "Styrdokument" {
-						continue
-					}
-					categoryOptions = append(categoryOptions, huh.NewOption(e.Name(), e.Name()))
-				}
-			}
-		}
-
-		categoryOptions = append(categoryOptions, huh.NewOption("➕ Skapa ny kategori...", "_NEW_KAT"))
-
-		if askSelect("Vilken typ av Grundakt?", categoryOptions, &subCategory) != nil {
-			return nil
-		}
-		if subCategory == "_NEW_KAT" {
-			if askInput("Kategorins namn (t.ex. Avtal, Motioner, Propositioner)", &subCategory) != nil || subCategory == "" {
-				return nil
-			}
-
-			subCategory = strings.ReplaceAll(subCategory, " ", "_")
-
-		}
-
-		if askInput("Dokumentets/Filens namn (t.ex Motion angående xx)", &dokNamn) != nil || dokNamn == "" {
-			return nil
-		}
-
-		err = app.CreateOtherGoverningDocuments(cwd, valdOrg, subCategory, dokNamn)
-
-		if err != nil {
-			return err
-		}
-
-		safeDocName := strings.ReplaceAll(dokNamn, " ", "_")
-		folderName := "avtal"
-		basePath = filepath.Join(cwd, valdOrg, "Grundakter", "Avtal", safeDocName, "källor")
-		mdPath = filepath.Join(basePath, "avtal.md")
-
-		if err := app.CreateOtherGoverningDocuments(cwd, valdOrg, folderName, safeDocName); err != nil {
-			return err
-		}
-
-		//mallText = fmt.Sprintf("---\ntyp: avtal\ntitle: %s\ndatum: %s\nparter:\n  - Föreningen\n  - Motparten AB\n---\n\n## 1. Avtalsobjekt\nDetta avtal avser...\n", dokNamn, time.Now().Format("2006-01-02"))
-	}
-
-	// SKAPA MAPPAR OCH FIL
-	//os.MkdirAll(filepath.Join(basePath, "bilagor"), 0o755)
-	//f, _ := os.Create(mdPath)
-	//f.WriteString(mallText)
-	//f.Close()
-
-	fmt.Printf("\n✅ Succé! Skapade dokument för %s.\n📂 Sökväg: %s\n", valdOrg, mdPath)
-	pausePrompt()
-	return nil
-}
 
 func createMainMenuForm() *huh.Form {
 	return huh.NewForm(
@@ -312,7 +19,9 @@ func createMainMenuForm() *huh.Form {
 				huh.NewOption("🔒 Försegla arkiv (Seal)", "seal"),
 				huh.NewOption("⚙️ Inställningar", "settings"),
 				huh.NewOption("❌ Avsluta", "exit"),
-			)))
+			),
+		),
+	)
 }
 
 func createSettingsMenuForm() *huh.Form {
@@ -324,19 +33,31 @@ func createSettingsMenuForm() *huh.Form {
 				huh.NewOption("📦 Hantera ZIP-arkivering (AIP)", "toggle_zip"),
 				huh.NewOption("🕑 Hantera Opentimestamps", "toggle_ots"),
 				huh.NewOption("⬅️ Tillbaka till Huvudmenyn", "back"),
-			)))
+			),
+		),
+	)
 }
 
 func askForNewOrgDetailsForm() *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
-			huh.NewInput().Title("Kortnamn/ID (t.ex. SVDK:)").Key("org_id"),
+			huh.NewInput().Title("Kortnamn/ID (t.ex. SVDK):").Key("org_id"),
 			huh.NewInput().Title("Fullt namn:").Key("org_name"),
-			huh.NewInput().Title("Org.Nr:").Key("org_number")))
+			huh.NewInput().Title("Org.Nr:").Key("org_number"),
+		),
+	)
+}
+
+func editOrgDetailsForm(name *string, number *string) *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().Title("Fullt namn:").Key("org_name").Value(name),
+			huh.NewInput().Title("Org.Nr:").Key("org_number").Value(number),
+		),
+	)
 }
 
 func createChooseOrgForm(orgs map[string]app.Association, title string, allowCreateNew bool) *huh.Form {
-
 	var options []huh.Option[string]
 
 	// 1. Visa alla föreningar
@@ -345,7 +66,6 @@ func createChooseOrgForm(orgs map[string]app.Association, title string, allowCre
 			continue
 		}
 		showText := fmt.Sprintf("(%s) %s", org.Id, org.Name)
-
 		options = append(options, huh.NewOption(showText, org.Id))
 	}
 	// 2. Ska skapa ny förening visas
@@ -358,48 +78,21 @@ func createChooseOrgForm(orgs map[string]app.Association, title string, allowCre
 
 	return huh.NewForm(
 		huh.NewGroup(
-			huh.NewSelect[string]().Key("selected_org").Title(title).Options(options...)))
-}
-
-func showSettingsMenu() (string, error) {
-	var action string
-
-	options := []huh.Option[string]{
-		huh.NewOption("➕ Lägg till ny förening", "ny_org"),
-		huh.NewOption("✏️ Redigera befintlig förening", "redigera_org"),
-		huh.NewOption("📦 Hantera ZIP-arkivering (AIP)", "toggle_zip"),
-		huh.NewOption("🕑 Hantera Opentimestamps", "toggle_ots"),
-		huh.NewOption("⬅️ Tillbaka till Huvudmenyn", "back"),
-	}
-
-	err := askSelect("⚙️ Inställningar", options, &action)
-
-	return action, err
-}
-
-func askForNewOrgDetails() (OrgDetails, error) {
-	var orgDetails OrgDetails
-
-	err := runForm(huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().Title("Kortnamn/ID (t.ex. SVDK):").Value(&orgDetails.ID),
-			huh.NewInput().Title("Fullt namn:").Value(&orgDetails.Name),
-			huh.NewInput().Title("Org.Nr:").Value(&orgDetails.Number),
+			huh.NewSelect[string]().Key("selected_org").Title(title).Options(options...),
 		),
-	))
-
-	return orgDetails, err
-
+	)
 }
 
-func createOpenTimeStampsForm(currentVal bool) *huh.Form {
-	return huh.NewForm(huh.NewGroup(
-		huh.NewConfirm().
-			Key("ots").
-			Title("Använd OpenTimestamps?").
-			Description("Tidsstämplar sealed filer via blockkedjieteknik.").
-			Value(new(currentVal))))
-
+func createConfirmForm(key string, title string, description string, currentVal bool) *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewConfirm().
+				Key(key).
+				Title(title).
+				Description(description).
+				Value(&currentVal),
+		),
+	).WithTheme(huh.ThemeBase16())
 }
 
 func chooseBodyForm(org app.Association) *huh.Form {
@@ -412,45 +105,28 @@ func chooseBodyForm(org app.Association) *huh.Form {
 
 	return huh.NewForm(
 		huh.NewGroup(
-			huh.NewSelect[string]().Key("selected_body").Title("Vilket organ?").Options(options...)))
+			huh.NewSelect[string]().Key("selected_body").Title("Vilket organ?").Options(options...),
+		),
+	)
 }
 
-func chooseGoverningDocumentTypeForm(cwd string, org app.Association) *huh.Form {
-	// SKANNA EFTER BEFINTLIGA KATEGORIER: Leta i Grundakter/Styrdokument/
-	subcategoryPath := filepath.Join(cwd, org.Id, "Grundakter", "Styrdokument")
+func chooseSubcategoryForm(cwd string, org app.Association, pathParts []string, title string, excludeDirs ...string) *huh.Form {
+	elements := append([]string{cwd, org.Id}, pathParts...)
+	subcategoryPath := filepath.Join(elements...)
 
 	var categoryOptions []huh.Option[string]
 	entries, err := os.ReadDir(subcategoryPath)
 	if err == nil {
 		for _, e := range entries {
 			if e.IsDir() {
-				categoryOptions = append(categoryOptions, huh.NewOption(e.Name(), e.Name()))
-			}
-		}
-	}
-	categoryOptions = append(categoryOptions, huh.NewOption("➕ Skapa ny kategori...", "create_new"))
-
-	return huh.NewForm(
-		huh.NewGroup(
-			huh.NewSelect[string]().Key("selected_document_type").Title("Vilken typ av styrdokument?").Options(categoryOptions...)))
-
-}
-
-func genericInputForm(title string, key string) *huh.Form {
-	return huh.NewForm(huh.NewGroup(
-		huh.NewInput().Title(title).Key(key)))
-}
-
-func chooseOtherDocumentTypeForm(cwd string, org app.Association) *huh.Form {
-	// SKANNA EFTER BEFINTLIGA KATEGORIER: Leta i Grundakter/
-	subcategoryPath := filepath.Join(cwd, org.Id, "Grundakter")
-
-	var categoryOptions []huh.Option[string]
-	entries, err := os.ReadDir(subcategoryPath)
-	if err == nil {
-		for _, e := range entries {
-			if e.IsDir() {
-				if e.Name() == "Styrdokument" {
+				excluded := false
+				for _, excl := range excludeDirs {
+					if e.Name() == excl {
+						excluded = true
+						break
+					}
+				}
+				if excluded {
 					continue
 				}
 				categoryOptions = append(categoryOptions, huh.NewOption(e.Name(), e.Name()))
@@ -461,11 +137,12 @@ func chooseOtherDocumentTypeForm(cwd string, org app.Association) *huh.Form {
 
 	return huh.NewForm(
 		huh.NewGroup(
-			huh.NewSelect[string]().Key("selected_document_type").Title("Vilken typ av Grundakt?").Options(categoryOptions...)))
+			huh.NewSelect[string]().Key("selected_document_type").Title(title).Options(categoryOptions...),
+		),
+	)
 }
 
 func chooseDocumentTypeForm() *huh.Form {
-
 	var options []huh.Option[string]
 	options = append(options, huh.NewOption("📝 Protokoll (Årsakter)", "protokoll"))
 	options = append(options, huh.NewOption("📜 Styrdokument/Policy (Grundakter)", "styrdokument"))
@@ -473,7 +150,9 @@ func chooseDocumentTypeForm() *huh.Form {
 
 	return huh.NewForm(
 		huh.NewGroup(
-			huh.NewSelect[string]().Key("document_type").Title("Vad vill du skapa?").Options(options...)))
+			huh.NewSelect[string]().Key("document_type").Title("Vad vill du skapa?").Options(options...),
+		),
+	)
 }
 
 func createFirstRunForm() *huh.Form {
@@ -484,60 +163,17 @@ func createFirstRunForm() *huh.Form {
 				Title("Tom mapp upptäckt!").
 				Description("Det verkar inte finnas något arkiv här.\nVill du initiera ett nytt Föreningsarkiv i denna mapp?").
 				Affirmative("Ja, bygg arkivet!").
-				Negative("Nej, avbryt")))
+				Negative("Nej, avbryt"),
+		),
+	)
 }
 
-func createZipForm(currentVal bool) *huh.Form {
+func genericInputForm(title string, key string) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
-			huh.NewConfirm().
-				Key("zip").
-				Title("Skapa automatiskt ZIP-arkiv?").
-				Description("Paketerar alla filer i en zip-fil när bygget är klart.").
-				Value(new(currentVal)))).WithTheme(huh.ThemeBase16())
-}
-
-func askForAssociationForm(context *AppContext) (string, error) {
-	var orgOptions []huh.Option[string]
-	for key := range context.Cfg.Foreningar {
-		if key == "" {
-			continue
-		}
-		orgOptions = append(orgOptions, huh.NewOption(key, key))
-	}
-	if len(orgOptions) == 0 {
-		return "", fmt.Errorf("no association found")
-	}
-
-	var valdOrg string
-	if err := askSelect("Vilken förening?", orgOptions, &valdOrg); err != nil {
-		return "", err
-	}
-
-	return valdOrg, nil
-
-}
-
-func askForNewDetailsForAssociationForm(org OrgDetails) (OrgDetails, error) {
-	err := runForm(huh.NewForm(
-		huh.NewGroup(
-			huh.NewInput().Title("Fullt namn:").Value(&org.Name),
-			huh.NewInput().Title("Org.Nr:").Value(&org.Number),
+			huh.NewInput().Title(title).Key(key),
 		),
-	))
-
-	return org, err
-}
-
-func askToggleSetting(title string, currentValue bool) (bool, error) {
-	newValue := currentValue
-	prompt := fmt.Sprintf("%s (Nu: %v)", title, newValue)
-
-	if err := askConfirm(prompt, &newValue); err != nil {
-		return currentValue, err
-	}
-
-	return newValue, nil
+	)
 }
 
 func listAllDocumentsFromAssociation(cwd string, org app.Association) *huh.Form {
@@ -545,9 +181,7 @@ func listAllDocumentsFromAssociation(cwd string, org app.Association) *huh.Form 
 	var docsOptions []huh.Option[string]
 
 	_ = filepath.WalkDir(searchPath, func(path string, d fs.DirEntry, err error) error {
-
 		if d != nil && d.IsDir() && d.Name() == "källor" {
-
 			relPath, _ := filepath.Rel(searchPath, filepath.Dir(path))
 			docsOptions = append(docsOptions, huh.NewOption(relPath, relPath))
 		}
@@ -558,13 +192,17 @@ func listAllDocumentsFromAssociation(cwd string, org app.Association) *huh.Form 
 		docsOptions = append(docsOptions, huh.NewOption("Gå tillbaka", "back"))
 		return huh.NewForm(
 			huh.NewGroup(
-				huh.NewSelect[string]().Title("Inga dokument hittades").Options(docsOptions...).Key("document")))
+				huh.NewSelect[string]().Title("Inga dokument hittades").Options(docsOptions...).Key("document"),
+			),
+		)
 	}
 	docsOptions = append(docsOptions, huh.NewOption("Gå tillbaka", "back"))
 
 	return huh.NewForm(
 		huh.NewGroup(
-			huh.NewSelect[string]().Title("Vilket dokument?").Options(docsOptions...).Key("document")))
+			huh.NewSelect[string]().Title("Vilket dokument?").Options(docsOptions...).Key("document"),
+		),
+	)
 }
 
 func listAllBuildDocumentsFromAssociation(cwd string, org app.Association) *huh.Form {
@@ -572,27 +210,16 @@ func listAllBuildDocumentsFromAssociation(cwd string, org app.Association) *huh.
 	var docsOptions []huh.Option[string]
 
 	_ = filepath.WalkDir(searchPath, func(path string, d fs.DirEntry, err error) error {
-		// 1. Fånga alltid eventuella fel först (t.ex. om programmet inte har behörighet att läsa en mapp)
 		if err != nil {
-			return nil // Hoppa över mappen istället för att krascha
+			return nil
 		}
 
 		if d.IsDir() && d.Name() == "arkiv" {
-
-			// 2. Använd Glob för att hitta alla PDF:er INUTI "arkiv"-mappen
-			// filepath.Join(path, "*.pdf") blir t.ex. "C:\min_mapp\arkiv\*.pdf"
 			pdfFiles, globErr := filepath.Glob(filepath.Join(path, "*.pdf"))
-
-			// 3. Om inga fel uppstod och vi hittade minst 1 PDF
 			if globErr == nil && len(pdfFiles) > 0 {
-
-				// Hämta relativa sökvägen för föräldramappen (precis som du gjorde!)
 				relPath, _ := filepath.Rel(searchPath, filepath.Dir(path))
 				docsOptions = append(docsOptions, huh.NewOption(relPath, relPath))
 			}
-
-			// 4. OPTIMERING: Eftersom vi redan har hittat och undersökt "arkiv",
-			// behöver vi inte loopa igenom alla filer inuti den för att hitta fler "arkiv"-mappar.
 			return filepath.SkipDir
 		}
 
@@ -603,13 +230,17 @@ func listAllBuildDocumentsFromAssociation(cwd string, org app.Association) *huh.
 		docsOptions = append(docsOptions, huh.NewOption("Gå tillbaka", "back"))
 		return huh.NewForm(
 			huh.NewGroup(
-				huh.NewSelect[string]().Title("Inga dokument hittades").Options(docsOptions...).Key("document")))
+				huh.NewSelect[string]().Title("Inga dokument hittades").Options(docsOptions...).Key("document"),
+			),
+		)
 	}
 	docsOptions = append(docsOptions, huh.NewOption("Gå tillbaka", "back"))
 
 	return huh.NewForm(
 		huh.NewGroup(
-			huh.NewSelect[string]().Title("Vilket dokument?").Options(docsOptions...).Key("document")))
+			huh.NewSelect[string]().Title("Vilket dokument?").Options(docsOptions...).Key("document"),
+		),
+	)
 }
 
 func askGenericYesOrNowForm(title string, description string, key string) *huh.Form {
@@ -618,5 +249,7 @@ func askGenericYesOrNowForm(title string, description string, key string) *huh.F
 			huh.NewConfirm().
 				Key(key).
 				Title(title).
-				Description(description))).WithTheme(huh.ThemeBase16())
+				Description(description),
+		),
+	).WithTheme(huh.ThemeBase16())
 }

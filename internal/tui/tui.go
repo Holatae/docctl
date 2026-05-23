@@ -22,6 +22,9 @@ type appState int
 const (
 	stateMainMenu appState = iota
 	stateSettingsMenu
+	stateSettingsCreateOrg
+	stateSettingsChooseOrgToEdit
+	stateSettingsEditOrgDetails
 	stateEditZip
 	stateEditOts
 	stateChooseOrgForBuild
@@ -62,6 +65,9 @@ type mainModel struct {
 	selectedGoverningDocType string
 	selectedGoverningDocName string
 	grundaktCategory         string
+
+	editOrgName   *string
+	editOrgNumber *string
 
 	activeForm *huh.Form
 
@@ -140,20 +146,30 @@ func (m mainModel) updateSettingsMenu(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 	if m.settingsMenu.State == huh.StateCompleted {
 		action := m.settingsMenu.GetString("action")
 		switch action {
+		case "ny_org":
+			m.activeForm = askForNewOrgDetailsForm()
+			m.state = stateSettingsCreateOrg
+			m.settingsMenu = createSettingsMenuForm()
+			cmds = append(cmds, m.activeForm.Init())
+		case "redigera_org":
+			m.activeForm = createChooseOrgForm(m.cfg.Foreningar, "Välj förening att redigera", false)
+			m.state = stateSettingsChooseOrgToEdit
+			m.settingsMenu = createSettingsMenuForm()
+			cmds = append(cmds, m.activeForm.Init())
 		case "toggle_zip":
-			m.activeForm = createZipForm(m.cfg.Settings.CreateZIP)
+			m.activeForm = createConfirmForm("zip", "Skapa automatiskt ZIP-arkiv?", "Paketerar alla filer i en zip-fil när bygget är klart.", m.cfg.Settings.CreateZIP)
 			m.state = stateEditZip
 			m.settingsMenu = createSettingsMenuForm()
 			cmds = append(cmds, m.activeForm.Init())
 		case "toggle_ots":
-			m.activeForm = createOpenTimeStampsForm(m.cfg.Settings.UseOpenTimeStamps)
+			m.activeForm = createConfirmForm("ots", "Använd OpenTimestamps?", "Tidsstämplar sealed filer via blockkedjieteknik.", m.cfg.Settings.UseOpenTimeStamps)
 			m.state = stateEditOts
 			m.settingsMenu = createSettingsMenuForm()
 			cmds = append(cmds, m.activeForm.Init())
 		case "back":
 			m.state = stateMainMenu
 			m.settingsMenu = createSettingsMenuForm()
-			cmds = append(cmds, m.activeForm.Init())
+			cmds = append(cmds, m.mainMenu.Init())
 		}
 	}
 	return m, tea.Batch(cmds...)
@@ -174,6 +190,103 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateMainMenu(keyMsg)
 	case stateSettingsMenu:
 		return m.updateSettingsMenu(keyMsg)
+
+	case stateSettingsCreateOrg:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+
+		if keyMsg, ok := keyMsg.(tea.KeyMsg); ok {
+			if keyMsg.Type == tea.KeyEsc {
+				m.state = stateSettingsMenu
+				m.settingsMenu = createSettingsMenuForm()
+				cmds = append(cmds, m.settingsMenu.Init())
+				return m, tea.Batch(cmds...)
+			}
+		}
+
+		if m.activeForm.State == huh.StateCompleted {
+			newOrgId := m.activeForm.GetString("org_id")
+			newOrgName := m.activeForm.GetString("org_name")
+			newOrgNumber := m.activeForm.GetString("org_number")
+
+			if newOrgId != "" {
+				err := app.CreateOrganization(m.cwd, newOrgId, newOrgName, newOrgNumber)
+				if err == nil {
+					*m.cfg, _ = app.LoadConfig(m.cwd)
+				}
+			}
+
+			m.state = stateSettingsMenu
+			m.settingsMenu = createSettingsMenuForm()
+			cmds = append(cmds, m.settingsMenu.Init())
+		}
+
+	case stateSettingsChooseOrgToEdit:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+
+		if keyMsg, ok := keyMsg.(tea.KeyMsg); ok {
+			if keyMsg.Type == tea.KeyEsc {
+				m.state = stateSettingsMenu
+				m.settingsMenu = createSettingsMenuForm()
+				cmds = append(cmds, m.settingsMenu.Init())
+				return m, tea.Batch(cmds...)
+			}
+		}
+
+		if m.activeForm.State == huh.StateCompleted {
+			selectedOrgId := m.activeForm.GetString("selected_org")
+			switch selectedOrgId {
+			case "back":
+				m.state = stateSettingsMenu
+				m.settingsMenu = createSettingsMenuForm()
+				cmds = append(cmds, m.settingsMenu.Init())
+			default:
+				m.selectedOrg = m.cfg.Foreningar[selectedOrgId]
+				nameVal := m.selectedOrg.Name
+				numberVal := m.selectedOrg.OrgNummer
+				m.editOrgName = &nameVal
+				m.editOrgNumber = &numberVal
+
+				m.activeForm = editOrgDetailsForm(m.editOrgName, m.editOrgNumber)
+				m.state = stateSettingsEditOrgDetails
+				cmds = append(cmds, m.activeForm.Init())
+			}
+		}
+
+	case stateSettingsEditOrgDetails:
+		form, cmd := m.activeForm.Update(keyMsg)
+		if f, ok := form.(*huh.Form); ok {
+			m.activeForm = f
+		}
+		cmds = append(cmds, cmd)
+
+		if keyMsg, ok := keyMsg.(tea.KeyMsg); ok {
+			if keyMsg.Type == tea.KeyEsc {
+				m.state = stateSettingsChooseOrgToEdit
+				m.activeForm = createChooseOrgForm(m.cfg.Foreningar, "Välj förening att redigera", false)
+				cmds = append(cmds, m.activeForm.Init())
+				return m, tea.Batch(cmds...)
+			}
+		}
+
+		if m.activeForm.State == huh.StateCompleted {
+			m.selectedOrg.Name = *m.editOrgName
+			m.selectedOrg.OrgNummer = *m.editOrgNumber
+
+			m.cfg.Foreningar[m.selectedOrg.Id] = m.selectedOrg
+			_ = app.SaveConfig(m.cwd, *m.cfg)
+
+			m.state = stateSettingsMenu
+			m.settingsMenu = createSettingsMenuForm()
+			cmds = append(cmds, m.settingsMenu.Init())
+		}
 
 	case stateChooseOrgForBuild:
 		form, cmd := m.activeForm.Update(keyMsg)
@@ -500,12 +613,12 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 				m.selectedDocumentType = documentType
 
 				m.state = stateChooseGoverningDocumentTypeForm
-				m.activeForm = chooseGoverningDocumentTypeForm(m.cwd, m.selectedOrg)
+				m.activeForm = chooseSubcategoryForm(m.cwd, m.selectedOrg, []string{"Grundakter", "Styrdokument"}, "Vilken typ av styrdokument?")
 				cmds = append(cmds, m.activeForm.Init())
 			case "other":
 				m.selectedDocumentType = documentType
 				m.state = stateChooseOtherDocumentType
-				m.activeForm = chooseOtherDocumentTypeForm(m.cwd, m.selectedOrg)
+				m.activeForm = chooseSubcategoryForm(m.cwd, m.selectedOrg, []string{"Grundakter"}, "Vilken typ av Grundakt?", "Styrdokument")
 				cmds = append(cmds, m.activeForm.Init())
 
 			}
@@ -544,7 +657,7 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 
 			_ = os.MkdirAll(filepath.Join(m.cwd, m.selectedOrg.Id, "Grundakter", m.grundaktCategory, name), os.ModePerm)
 			m.state = stateChooseOtherDocumentType
-			m.activeForm = chooseOtherDocumentTypeForm(m.cwd, m.selectedOrg)
+			m.activeForm = chooseSubcategoryForm(m.cwd, m.selectedOrg, []string{"Grundakter"}, "Vilken typ av Grundakt?", "Styrdokument")
 			cmds = append(cmds, m.activeForm.Init())
 
 		}
@@ -599,7 +712,7 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 				panic(err)
 			}
 			m.state = stateChooseGoverningDocumentTypeForm
-			m.activeForm = chooseGoverningDocumentTypeForm(m.cwd, m.selectedOrg)
+			m.activeForm = chooseSubcategoryForm(m.cwd, m.selectedOrg, []string{"Grundakter", "Styrdokument"}, "Vilken typ av styrdokument?")
 			cmds = append(cmds, m.activeForm.Init())
 
 		}
@@ -700,7 +813,8 @@ func (m mainModel) View() string {
 		stateChooseGoverningDocumentTypeForm, stateCreateNewGoverningDocumentTypeForm, stateAskGoverningDocumentNameForm,
 		stateChooseOtherDocumentType, stateChooseOtherDocumentCategoryNameForm, stateCreateOtherDocumentTypeForm,
 		stateChooseOrgForBuild, stateChooseDocumentToBuild, stateAskIfUserWantToNukeSealedDocument,
-		stateChooseOrgForSeal, stateChooseDocumentToSeal, stateAskForPGPKey, stateAskIfUserWantToNukeSealedDocumentForSealedDocument:
+		stateChooseOrgForSeal, stateChooseDocumentToSeal, stateAskForPGPKey, stateAskIfUserWantToNukeSealedDocumentForSealedDocument,
+		stateSettingsCreateOrg, stateSettingsChooseOrgToEdit, stateSettingsEditOrgDetails:
 		if m.activeForm == nil {
 			return "Laddar..."
 		}
@@ -737,79 +851,4 @@ func StartTUI() error {
 	return nil
 }
 
-func runSettingsFlow(context *AppContext) {
-	action, err := showSettingsMenu()
-	if err != nil || action == "exit" {
-	}
 
-	switch action {
-	case "ny_org":
-		// Ev kolla erros här
-		orgDetails, _ := askForNewOrgDetails()
-
-		err := app.CreateOrganization(context.Cwd, orgDetails.ID, orgDetails.Name, orgDetails.Number)
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		context.Cfg.Foreningar[orgDetails.ID] = app.Association{Name: orgDetails.Name, OrgNummer: orgDetails.Number, Body: []string{"styrelsen", "årsmöte"}}
-
-		// TODO Change SaveConfig to tage &Cfg
-		if err := app.SaveConfig(context.Cwd, *context.Cfg); err != nil {
-			fmt.Println("Error occured while saving config")
-			pausePrompt()
-			return
-		}
-	case "redigera_org":
-		selectedOrg, err := askForAssociationForm(context)
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		originalOrg := context.Cfg.Foreningar[selectedOrg]
-
-		detailsToEdit := OrgDetails{
-			ID:     selectedOrg,
-			Name:   originalOrg.Name,
-			Number: originalOrg.OrgNummer,
-		}
-
-		updatedDetails, err := askForNewDetailsForAssociationForm(detailsToEdit)
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		originalOrg.Name = updatedDetails.Name
-		originalOrg.OrgNummer = updatedDetails.Number
-
-		context.Cfg.Foreningar[selectedOrg] = originalOrg
-
-		_ = app.SaveConfig(context.Cwd, *context.Cfg)
-	case "toggle_zip":
-		newValue, err := askToggleSetting("Skapa automatiskt ZIP-arkiv?", context.Cfg.Settings.CreateZIP)
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		context.Cfg.Settings.CreateZIP = newValue
-
-		if err := app.SaveConfig(context.Cwd, *context.Cfg); err != nil {
-			fmt.Println("Error occured while saving config")
-		} else {
-			fmt.Println("✅ Inställningen sparad!")
-		}
-	case "toggle_ots":
-		newValue, err := askToggleSetting("Använd OpenTimeStamps?", context.Cfg.Settings.UseOpenTimeStamps)
-		if err != nil {
-			fmt.Println(err)
-		}
-
-		context.Cfg.Settings.UseOpenTimeStamps = newValue
-
-		if err := app.SaveConfig(context.Cwd, *context.Cfg); err != nil {
-			fmt.Println("Error occured while saving config")
-		} else {
-			fmt.Println("✅ Inställningen sparad!")
-		}
-	}
-}
