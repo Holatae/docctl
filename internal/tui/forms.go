@@ -82,23 +82,6 @@ func createChooseOrgForm(orgs map[string]app.Association, title string, allowCre
 			huh.NewSelect[string]().Key("selected_org").Title(title).Options(options...)))
 }
 
-func showSettingsMenu() (string, error) {
-	var action string
-
-	options := []huh.Option[string]{
-		huh.NewOption("➕ Lägg till ny förening", "ny_org"),
-		huh.NewOption("✏️ Redigera befintlig förening", "redigera_org"),
-		huh.NewOption("📦 Hantera ZIP-arkivering (AIP)", "toggle_zip"),
-		huh.NewOption("🕑 Hantera Opentimestamps", "toggle_ots"),
-		huh.NewOption("🔄 Uppdatera standardmallar", "update_templates"),
-		huh.NewOption("⬅️ Tillbaka till Huvudmenyn", "back"),
-	}
-
-	err := askSelect("⚙️ Inställningar", options, &action)
-
-	return action, err
-}
-
 func askConfirmTemplateUpdateForm() *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(
@@ -110,10 +93,8 @@ func askConfirmTemplateUpdateForm() *huh.Form {
 				Negative("Nej, avbryt"))).WithTheme(huh.ThemeBase16())
 }
 
-func askForNewOrgDetails() (OrgDetails, error) {
-	var orgDetails OrgDetails
-
-	err := runForm(huh.NewForm(
+func createConfirmForm(key string, title string, description string, currentVal bool) *huh.Form {
+	return huh.NewForm(
 		huh.NewGroup(
 			huh.NewConfirm().
 				Key(key).
