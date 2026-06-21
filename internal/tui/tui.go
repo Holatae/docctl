@@ -350,20 +350,18 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 				m.mainMenu = createMainMenuForm()
 				cmds = append(cmds, m.mainMenu.Init())
 			default:
-				sigPath := filepath.Join(filepath.Dir(m.selectedDocumentToBuild), "arkiv", "ATTESTATION.md.sig")
+				sigPath := filepath.Join(m.cwd, m.selectedOrg.Id, m.selectedDocumentToSeal, "arkiv", "ATTESTATION.md.sig")
 
 				if _, err := os.Stat(sigPath); err == nil {
 					m.state = stateAskIfUserWantToNukeSealedDocumentForSealedDocument
 					m.activeForm = askGenericYesOrNowForm("⚠️ Arkivet/Avtalet är förseglat!", " Seals det om raderas signaturen. Fortsätta?", "action")
 					cmds = append(cmds, m.activeForm.Init())
+				} else {
+					m.state = stateAskForPGPKey
+					m.activeForm = genericInputForm("Ange GPG E-post/ID:", "pgp")
+					cmds = append(cmds, m.activeForm.Init())
 				}
-
-				m.state = stateAskForPGPKey
-				m.activeForm = genericInputForm("Ange GPG E-post/ID:", "pgp")
-				cmds = append(cmds, m.activeForm.Init())
-
 			}
-			// Check if it is already sealed
 		}
 
 	case stateAskIfUserWantToNukeSealedDocumentForSealedDocument:
@@ -419,7 +417,7 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 			m.force = false
 
 			m.state = stateMainMenu
-			m.mainMenu = createSettingsMenuForm()
+			m.mainMenu = createMainMenuForm()
 			cmds = append(cmds, m.mainMenu.Init())
 		}
 
@@ -859,7 +857,7 @@ func StartTUI() error {
 		activeForm:   createFirstRunForm(),
 	}
 
-	if isFirstRun() {
+	if isFirstRun(cwd) {
 		initialModel.state = stateFirstRun
 	} else {
 		cfg, _ = app.LoadConfig(cwd)
