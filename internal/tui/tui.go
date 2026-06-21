@@ -557,6 +557,7 @@ func (m mainModel) Update(keyMsg tea.Msg) (tea.Model, tea.Cmd) {
 				return nil, nil
 			}
 
+			*m.cfg, _ = app.LoadConfig(m.cwd)
 			m.activeForm = createChooseOrgForm(m.cfg.Foreningar, "Välj förening", true)
 			m.state = stateChooseOrgForDoc
 			cmds = append(cmds, m.activeForm.Init())
