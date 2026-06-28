@@ -3,7 +3,6 @@ package app
 import (
 	"docctl/internal/assets"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -29,50 +28,6 @@ func setupTestOrg(t *testing.T) (string, string) {
 
 }
 
-func setupTestGPGEnv(t *testing.T) string {
-	t.Helper()
-
-	gpgHome := filepath.Join(t.TempDir(), ".gnupg")
-	err := os.MkdirAll(gpgHome, 0700)
-	if err != nil {
-		t.Errorf("Failed to create GNUPG home dir: %s", err)
-	}
-
-	t.Setenv("GNUPGHOME", gpgHome)
-
-	testKey := `-----BEGIN PGP PRIVATE KEY BLOCK-----
-
-xVgEafTjLBYJKwYBBAHaRw8BAQdARpBJWVuRtM4bx7QAus5Z+QUyqFgRYgIA
-iRCvleqK0DAAAP4kGdupuqCV4W6qH0L7kCD/LGveS+j6BZy0sg588NYk5RK0
-zRV0ZXN0IDx0ZXN0QHRlc3QudGVzdD7CwBMEExYKAIUFgmn04ywDCwkHCRCh
-W+Mt6yxRoEUUAAAAAAAcACBzYWx0QG5vdGF0aW9ucy5vcGVucGdwanMub3Jn
-YpFL/5s4ci5aftzha2Rs1xc33Fe1Z9LcdBkurufjv5EFFQoIDgwEFgACAQIZ
-AQKbAwIeARYhBLRbZ4GAGCGKxaaJ6qFb4y3rLFGgAAAiYAEAiB0PjFvN4e5i
-FL4NRx9/ZWjdq9f0DmF4KPXDcn6r/wAA/jEpAaWuRRKRx1hlHFj3CrUHHG3W
-22BcXdxtBrsgHN4Cx10EafTjLBIKKwYBBAGXVQEFAQEHQBS4iVhi4PWxWo+q
-6S/l2mjQ6KCqIEhzBSNxSaQdazkiAwEIBwAA/30zovYSRJnF7kx2NVfT/CUn
-vvHO/FAeS2uJ7mouJJpAEPzCvgQYFgoAcAWCafTjLAkQoVvjLessUaBFFAAA
-AAAAHAAgc2FsdEBub3RhdGlvbnMub3BlbnBncGpzLm9yZ5rSuCup8xzc2UBI
-4ReltyE4gTOXJMSLozoYtfTtSSs5ApsMFiEEtFtngYAYIYrFponqoVvjLess
-UaAAAAp0AQCYDGghx6dQdPqMDL7l4BHAjChNXAY99mlRYiHQirzJpgD+P6Jb
-M4JF1ODBz4lP2o38ZyS9wYC9N/sL/Y+Ihzhy9A0=
-=duWz
------END PGP PRIVATE KEY BLOCK-----`
-
-	keyPath := filepath.Join(t.TempDir(), "testkey.asc")
-	err = os.WriteFile(keyPath, []byte(testKey), 0600)
-	if err != nil {
-		t.Fatalf("Failed to create test key: %s", err)
-	}
-
-	cmd := exec.Command("gpg", "--batch", "--import", keyPath)
-	out, err := cmd.CombinedOutput()
-	if err != nil {
-		t.Fatalf("Failed to import test key: %s, GPG säger\n%s", err, string(out))
-	}
-
-	return "test@test.test"
-}
 
 func TestInitialization(t *testing.T) {
 	cwd := t.TempDir()
@@ -100,6 +55,9 @@ func TestInitialization(t *testing.T) {
 	} else {
 		if !strings.Contains(string(gitignoreData), "arkiv/*.pdf") {
 			t.Errorf(".gitignore does not contain arkiv/*.pdf")
+		}
+		if !strings.Contains(string(gitignoreData), ".keys/") {
+			t.Errorf(".gitignore does not contain .keys/")
 		}
 	}
 
@@ -134,17 +92,17 @@ func TestUpdateTemplates(t *testing.T) {
 	}
 
 	mallarDir := filepath.Join(toolingDir, "mallar")
-	testFilePath := filepath.Join(mallarDir, "basmall.typ")
+	testFilePath := filepath.Join(mallarDir, "router.typ")
 
 	// Modify one of the templates in the destination to see if it gets overwritten
 	originalContent, err := os.ReadFile(testFilePath)
 	if err != nil {
-		t.Fatalf("Failed to read basmall.typ: %s", err)
+		t.Fatalf("Failed to read router.typ: %s", err)
 	}
 
 	err = os.WriteFile(testFilePath, []byte("MODIFIED_CONTENT_FOR_TESTING"), 0644)
 	if err != nil {
-		t.Fatalf("Failed to write modified basmall.typ: %s", err)
+		t.Fatalf("Failed to write modified router.typ: %s", err)
 	}
 
 	// Now run UpdateTemplates
@@ -156,7 +114,7 @@ func TestUpdateTemplates(t *testing.T) {
 	// Read content again, it should match the original content
 	updatedContent, err := os.ReadFile(testFilePath)
 	if err != nil {
-		t.Fatalf("Failed to read updated basmall.typ: %s", err)
+		t.Fatalf("Failed to read updated router.typ: %s", err)
 	}
 
 	if string(updatedContent) != string(originalContent) {

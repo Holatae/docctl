@@ -2,6 +2,7 @@ package tui
 
 import (
 	"docctl/internal/app"
+	"docctl/internal/keys"
 	"fmt"
 	"io/fs"
 	"os"
@@ -33,8 +34,125 @@ func createSettingsMenuForm() *huh.Form {
 				huh.NewOption("📦 Hantera ZIP-arkivering (AIP)", "toggle_zip"),
 				huh.NewOption("🕑 Hantera Opentimestamps", "toggle_ots"),
 				huh.NewOption("🔄 Uppdatera standardmallar", "update_templates"),
+				huh.NewOption("🔑 Nyckelhantering", "key_management"),
 				huh.NewOption("⬅️ Tillbaka till Huvudmenyn", "back"),
 			),
+		),
+	)
+}
+
+func createKeyManagementMenuForm() *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Key("action").Title("Nyckelhantering").Options(
+				huh.NewOption("✨ Skapa ny signeringsnyckel", "generate"),
+				huh.NewOption("📋 Visa befintliga nycklar", "list"),
+				huh.NewOption("📤 Exportera publik nyckel", "export_key"),
+				huh.NewOption("📜 Skapa nyckelkontrakt", "key_contract"),
+				huh.NewOption("⬅️ Tillbaka till Inställningar", "back"),
+			),
+		),
+	)
+}
+
+func createKeySelectionForActionForm(allKeys []keys.KeyMeta, title string) *huh.Form {
+	var options []huh.Option[string]
+	for _, k := range allKeys {
+		label := fmt.Sprintf("[%s] %s (%s) FP:%s", k.OrgID, k.Name, k.Label, k.ShortFP)
+		options = append(options, huh.NewOption(label, k.ShortFP))
+	}
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Key("key").Title(title).Options(options...),
+		),
+	)
+}
+
+func createKeyContractForm(allKeys []keys.KeyMeta) *huh.Form {
+	var options []huh.Option[string]
+	for _, k := range allKeys {
+		label := fmt.Sprintf("[%s] %s (%s) FP:%s", k.OrgID, k.Name, k.Label, k.ShortFP)
+		options = append(options, huh.NewOption(label, k.ShortFP))
+	}
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Key("key").Title("Välj nyckel för deklaration").Options(options...),
+			huh.NewInput().Key("key_dir").Title("Publik nyckelkatalog (URL)").
+				Placeholder("https://keys.example.com/").
+				Description("Lämna tom om du inte har en katalog — visas som platshållare i dokumentet."),
+		),
+	)
+}
+
+func createKeyActionResultForm(msg string) *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewNote().Title("✅ Klart").Description(msg),
+			huh.NewConfirm().Key("ok").Affirmative("OK").Negative(""),
+		),
+	)
+}
+
+func createKeyListForm(allKeys []keys.KeyMeta) *huh.Form {
+	var options []huh.Option[string]
+	for _, k := range allKeys {
+		label := fmt.Sprintf("[%s] %s (%s) – %s  FP:%s  Skapad:%s",
+			k.OrgID, k.Name, k.Label, k.Email, k.ShortFP,
+			k.Created.Format("2006-01-02"))
+		options = append(options, huh.NewOption(label, k.ShortFP))
+	}
+	options = append(options, huh.NewOption("⬅️ Tillbaka", "back"))
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Key("key").Title("Befintliga nycklar").Options(options...),
+		),
+	)
+}
+
+func createKeySelectionForm(orgKeys []keys.KeyMeta) *huh.Form {
+	var options []huh.Option[string]
+	for _, k := range orgKeys {
+		label := fmt.Sprintf("%s (%s) – %s [%s]", k.Name, k.Label, k.Email, k.ShortFP)
+		options = append(options, huh.NewOption(label, k.ShortFP))
+	}
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Key("key").Title("Välj signeringsnyckel").Options(options...),
+		),
+	)
+}
+
+func createPinInputForm() *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewInput().Title("PIN-kod:").Key("pin").EchoMode(huh.EchoModePassword),
+		),
+	)
+}
+
+func createGenerateKeyForm(orgs map[string]app.Association) *huh.Form {
+	var orgOptions []huh.Option[string]
+	for _, org := range orgs {
+		if org.Name == "" {
+			continue
+		}
+		orgOptions = append(orgOptions, huh.NewOption(fmt.Sprintf("(%s) %s", org.Id, org.Name), org.Id))
+	}
+
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Key("org").Title("Förening").Options(orgOptions...),
+			huh.NewInput().Title("Ditt namn:").Key("name").Placeholder("Victor Andersson"),
+			huh.NewInput().Title("Etikett (t.ex. Primär 2025):").Key("label").Placeholder("Primär 2025"),
+			huh.NewInput().Title("E-post för nyckelidentitet:").Key("email").Placeholder("victor@example.com"),
+			huh.NewSelect[string]().Key("expiry").Title("Giltighetstid").Options(
+				huh.NewOption("1 år (rekommenderas)", "1y"),
+				huh.NewOption("2 år", "2y"),
+				huh.NewOption("3 år", "3y"),
+				huh.NewOption("Inget utgångsdatum", "none"),
+			),
+			huh.NewInput().Title("PIN-kod:").Key("pin").EchoMode(huh.EchoModePassword),
+			huh.NewInput().Title("Bekräfta PIN-kod:").Key("pin_confirm").EchoMode(huh.EchoModePassword),
 		),
 	)
 }
@@ -154,9 +272,9 @@ func chooseSubcategoryForm(cwd string, org app.Association, pathParts []string, 
 
 func chooseDocumentTypeForm() *huh.Form {
 	var options []huh.Option[string]
-	options = append(options, huh.NewOption("📝 Protokoll (Årsakter)", "protokoll"))
-	options = append(options, huh.NewOption("📜 Styrdokument/Policy (Grundakter)", "styrdokument"))
-	options = append(options, huh.NewOption("🤝 Andra dokument (Grundakter)", "other"))
+	options = append(options, huh.NewOption("📝 Protokoll (Årsakter)", string(DocumentTypeProtokoll)))
+	options = append(options, huh.NewOption("📜 Styrdokument/Policy (Grundakter)", string(DocumentTypeStyrdokument)))
+	options = append(options, huh.NewOption("🤝 Andra dokument (Grundakter)", string(DocumentTypeOther)))
 
 	return huh.NewForm(
 		huh.NewGroup(

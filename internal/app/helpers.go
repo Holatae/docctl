@@ -245,6 +245,9 @@ Thumbs.db
 # Temporära filer från byggmotorn
 *_temp.typ
 
+# Privata signeringsnycklar – ska ALDRIG versionshanteras
+.keys/
+
 # Valfritt: Ignorera tunga leveransformat i Git
 arkiv/*.pdf
 arkiv/*.docx
@@ -345,65 +348,38 @@ func CreateProtokoll(cwd string, orgId string, body string, date string) error {
 }
 
 func CreateGuidanceDocuments(cwd string, orgId string, subcategory string, docName string) error {
-
-	// needs to be more safe
-	safeCategory := strings.ReplaceAll(subcategory, " ", "-")
-	safeDocName := strings.ReplaceAll(docName, " ", "-")
-	ymlCategory := strings.ToLower(subcategory)
-
-	standardText := fmt.Sprintf("---\ntyp: %s\ntitle: %s\nversion: 1.0\nantagen: ÅÅÅÅ-MM-DD av Styrelsen\n---\n\n## 1. Syfte\nSyftet med detta dokument är...\n", ymlCategory, docName)
-
-	basePath := filepath.Join(cwd, orgId, "Grundakter", "Styrdokument")
-	mdPath := filepath.Join(basePath, safeCategory, safeDocName, "källor", "document.md")
-
-	if err := os.MkdirAll(filepath.Join(basePath, safeCategory, safeDocName, "källor"), os.ModePerm); err != nil {
-		return fmt.Errorf("could create folders")
-	}
-
-	f, err := os.Create(mdPath)
-	if err != nil {
-		return fmt.Errorf("could not create markdown file")
-	}
-	defer func(f *os.File) {
-		_ = f.Close()
-	}(f)
-
-	if _, err := f.WriteString(standardText); err != nil {
-		return fmt.Errorf("could not write to file")
-	}
-
-	return nil
+	base := filepath.Join(cwd, orgId, "Grundakter", "Styrdokument")
+	return createGoverningDocument(base, subcategory, docName)
 }
 
-// TODO Make another function of CreateGuidanceDcouments and CreateOtherGoverningDocuments
 func CreateOtherGoverningDocuments(cwd string, orgId string, category string, docName string) error {
+	base := filepath.Join(cwd, orgId, "Grundakter")
+	return createGoverningDocument(base, category, docName)
+}
 
-	// needs to be more safe
+func createGoverningDocument(baseDir string, category string, docName string) error {
 	safeCategory := strings.ReplaceAll(category, " ", "-")
 	safeDocName := strings.ReplaceAll(docName, " ", "-")
 	ymlCategory := strings.ToLower(category)
 
-	basePath := filepath.Join(cwd, orgId, "Grundakter")
-	mdPath := filepath.Join(basePath, safeCategory, safeDocName, "källor", "document.md")
-
 	standardText := fmt.Sprintf("---\ntyp: %s\ntitle: %s\nversion: 1.0\nantagen: ÅÅÅÅ-MM-DD av Styrelsen\n---\n\n## 1. Syfte\nSyftet med detta dokument är...\n", ymlCategory, docName)
+	mdPath := filepath.Join(baseDir, safeCategory, safeDocName, "källor", "document.md")
 
-	if err := os.MkdirAll(filepath.Join(basePath, safeCategory, safeDocName, "källor"), os.ModePerm); err != nil {
-		return fmt.Errorf("could create folders")
+	if err := os.MkdirAll(filepath.Join(baseDir, safeCategory, safeDocName, "källor"), os.ModePerm); err != nil {
+		return fmt.Errorf("kunde inte skapa mappar: %w", err)
 	}
 
 	f, err := os.Create(mdPath)
 	if err != nil {
-		return fmt.Errorf("could not create markdown file")
+		return fmt.Errorf("kunde inte skapa markdown-fil: %w", err)
 	}
 	defer func(f *os.File) {
 		_ = f.Close()
 	}(f)
 
 	if _, err := f.WriteString(standardText); err != nil {
-		return fmt.Errorf("could not write to file")
+		return fmt.Errorf("kunde inte skriva till fil: %w", err)
 	}
 
 	return nil
-
 }

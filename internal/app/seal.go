@@ -7,9 +7,12 @@ import (
 	"path/filepath"
 	"sort"
 	"time"
+
+	"github.com/ProtonMail/go-crypto/openpgp"
+	"github.com/ProtonMail/go-crypto/openpgp/armor"
 )
 
-func DoSeal(kallorPath string, key string, force bool) (err error) {
+func DoSeal(kallorPath string, entity *openpgp.Entity, force bool) (err error) {
 	kallorDir, _ := filepath.Abs(kallorPath)
 	motesDir := filepath.Dir(kallorDir)
 	arkivDir := filepath.Join(motesDir, "arkiv")
@@ -35,9 +38,23 @@ func DoSeal(kallorPath string, key string, force bool) (err error) {
 		}
 	}
 
-	err = RunCmd("gpg", "--armor", "--export", "--output", pubKeyPath, key)
-	if err != nil {
-		return fmt.Errorf("could not armor signeringsnyckel: %w", err)
+	{
+		f, err := os.Create(pubKeyPath)
+		if err != nil {
+			return fmt.Errorf("could not create public key file: %w", err)
+		}
+		w, err := armor.Encode(f, "PGP PUBLIC KEY BLOCK", nil)
+		if err != nil {
+			_ = f.Close()
+			return fmt.Errorf("could not create armor writer: %w", err)
+		}
+		if err := entity.Serialize(w); err != nil {
+			_ = w.Close()
+			_ = f.Close()
+			return fmt.Errorf("could not export public key: %w", err)
+		}
+		_ = w.Close()
+		_ = f.Close()
 	}
 
 	var files []string
@@ -97,9 +114,23 @@ func DoSeal(kallorPath string, key string, force bool) (err error) {
 		}
 	}
 
-	err = RunCmd("gpg", "--detach-sign", "--armor", "--local-user", key, "--output", sigPath, manifestPath)
-	if err != nil {
-		return fmt.Errorf("could not armor signeringsnyckel: %w", err)
+	{
+		sigFile, err := os.Create(sigPath)
+		if err != nil {
+			return fmt.Errorf("could not create signature file: %w", err)
+		}
+		manifest, err := os.Open(manifestPath)
+		if err != nil {
+			_ = sigFile.Close()
+			return fmt.Errorf("could not open manifest: %w", err)
+		}
+		if err := openpgp.ArmoredDetachSign(sigFile, entity, manifest, nil); err != nil {
+			_ = manifest.Close()
+			_ = sigFile.Close()
+			return fmt.Errorf("could not sign manifest: %w", err)
+		}
+		_ = manifest.Close()
+		_ = sigFile.Close()
 	}
 
 	// Koll om vi ska ZIPPA enligt inställningarna!

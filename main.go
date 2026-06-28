@@ -3,6 +3,7 @@ package main
 import (
 	"docctl/internal/app"
 	"docctl/internal/assets"
+	"docctl/internal/keys"
 	"docctl/internal/tui"
 	"fmt"
 	"os"
@@ -34,7 +35,10 @@ var (
 var rootCmd = &cobra.Command{
 	Use: "docctl",
 	Run: func(cmd *cobra.Command, args []string) {
-		tui.StartTUI()
+		if err := tui.StartTUI(); err != nil {
+			fmt.Fprintf(os.Stderr, "Fel: %v\n", err)
+			os.Exit(1)
+		}
 	},
 }
 
@@ -54,9 +58,14 @@ var sealCmd = &cobra.Command{
 	Use:  "seal [sökväg]",
 	Args: cobra.ExactArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		gpgKey, _ := cmd.Flags().GetString("key")
-		err := app.DoSeal(args[0], gpgKey, forceSeal)
+		keyFile, _ := cmd.Flags().GetString("key-file")
+		pin, _ := cmd.Flags().GetString("pin")
+		entity, err := keys.LoadAndUnlock(keyFile, []byte(pin))
 		if err != nil {
+			fmt.Println("❌ Kunde inte ladda nyckel:", err)
+			os.Exit(1)
+		}
+		if err := app.DoSeal(args[0], entity, forceSeal); err != nil {
 			fmt.Println(err)
 			os.Exit(1)
 		}
@@ -109,8 +118,10 @@ var updateTemplatesCmd = &cobra.Command{
 }
 
 func main() {
-	sealCmd.Flags().StringP("key", "k", "", "GPG Key")
-	_ = sealCmd.MarkFlagRequired("key")
+	sealCmd.Flags().StringP("key-file", "k", "", "Sökväg till krypterad nyckelfil (.asc)")
+	sealCmd.Flags().StringP("pin", "p", "", "PIN-kod för nyckeln")
+	_ = sealCmd.MarkFlagRequired("key-file")
+	_ = sealCmd.MarkFlagRequired("pin")
 	buildCmd.Flags().BoolVarP(&forceBuild, "force", "f", false, "Tvinga ombyggnad")
 	sealCmd.Flags().BoolVarP(&forceSeal, "force", "f", false, "Tvinga omförsegling")
 

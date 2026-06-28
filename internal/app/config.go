@@ -49,7 +49,9 @@ func LoadConfig(projRoot string) (Config, error) {
 		}
 		return cfg, nil
 	}
-	_ = yaml.Unmarshal(data, &cfg)
+	if err := yaml.Unmarshal(data, &cfg); err != nil {
+		return cfg, fmt.Errorf("ogiltig konfiguration: %w", err)
+	}
 
 	for key, org := range cfg.Foreningar {
 		org.Id = key

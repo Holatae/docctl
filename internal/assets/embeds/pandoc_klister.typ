@@ -1,7 +1,9 @@
-#import "$org_mall$": *
+#import "$org_mall$": org_namn, org_nummer
+#import "/.tooling/mallar/router.typ": org_dokument
 
-// ▼ HÄR ÄR ÄNDRINGEN ▼
 #show: doc => org_dokument(
+  org_namn: org_namn,
+  org_nummer: org_nummer,
   typ: $if(typ)$"$typ$"$else$"protokoll"$endif$,
   titel: $if(title)$[$title$]$else$none$endif$,
   datum: $if(datum)$[$datum$]$else$none$endif$,
