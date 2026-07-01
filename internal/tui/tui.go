@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"docctl/internal/app"
@@ -58,6 +59,8 @@ const (
 	stateExportPublicKey
 	stateGenerateKeyContract
 	stateKeyActionResult
+	stateChooseSourceFormat
+	stateChooseFODTTemplate
 )
 
 type mainModel struct {
@@ -76,6 +79,9 @@ type mainModel struct {
 	selectedGoverningDocType string
 	selectedGoverningDocName string
 	grundaktCategory         string
+
+	selectedSourceFormat SourceFormat
+	selectedFODTTemplate string
 
 	editOrgName   *string
 	editOrgNumber *string
@@ -976,10 +982,9 @@ func (m mainModel) updateAskDate(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	if m.activeForm.State == huh.StateCompleted {
 		m.date = m.activeForm.GetString("date")
-		_ = app.CreateProtokoll(m.cwd, m.selectedOrg.Id, m.selectedBody, m.date)
-		var mainCmd tea.Cmd
-		m, mainCmd = m.goToMainMenu()
-		cmds = append(cmds, mainCmd)
+		m.state = stateChooseSourceFormat
+		m.activeForm = chooseSourceFormatForm()
+		cmds = append(cmds, m.activeForm.Init())
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -1029,10 +1034,10 @@ func (m mainModel) updateAskGoverningDocumentName(msg tea.Msg) (tea.Model, tea.C
 	cmds = append(cmds, cmd)
 
 	if m.activeForm.State == huh.StateCompleted {
-		_ = app.CreateGuidanceDocuments(m.cwd, m.selectedOrg.Id, m.selectedGoverningDocType, m.activeForm.GetString("name"))
-		var mainCmd tea.Cmd
-		m, mainCmd = m.goToMainMenu()
-		cmds = append(cmds, mainCmd)
+		m.selectedGoverningDocName = m.activeForm.GetString("name")
+		m.state = stateChooseSourceFormat
+		m.activeForm = chooseSourceFormatForm()
+		cmds = append(cmds, m.activeForm.Init())
 	}
 	return m, tea.Batch(cmds...)
 }
@@ -1079,7 +1084,81 @@ func (m mainModel) updateCreateOtherDocumentType(msg tea.Msg) (tea.Model, tea.Cm
 	cmds = append(cmds, cmd)
 
 	if m.activeForm.State == huh.StateCompleted {
-		_ = app.CreateOtherGoverningDocuments(m.cwd, m.selectedOrg.Id, m.grundaktCategory, m.activeForm.GetString("name"))
+		m.selectedGoverningDocName = m.activeForm.GetString("name")
+		m.state = stateChooseSourceFormat
+		m.activeForm = chooseSourceFormatForm()
+		cmds = append(cmds, m.activeForm.Init())
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m mainModel) updateChooseSourceFormat(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	m, cmd := m.stepActiveForm(msg)
+	cmds = append(cmds, cmd)
+
+	if m.activeForm.State == huh.StateCompleted {
+		m.selectedSourceFormat = SourceFormat(m.activeForm.GetString("source_format"))
+
+		if m.selectedSourceFormat == SourceFormatMarkdown {
+			// Skapa Markdown-dokument som tidigare
+			switch m.selectedDocumentType {
+			case DocumentTypeProtokoll:
+				_ = app.CreateProtokoll(m.cwd, m.selectedOrg.Id, m.selectedBody, m.date)
+			case DocumentTypeStyrdokument:
+				_ = app.CreateGuidanceDocuments(m.cwd, m.selectedOrg.Id, m.selectedGoverningDocType, m.selectedGoverningDocName)
+			case DocumentTypeOther:
+				_ = app.CreateOtherGoverningDocuments(m.cwd, m.selectedOrg.Id, m.grundaktCategory, m.selectedGoverningDocName)
+			}
+			var mainCmd tea.Cmd
+			m, mainCmd = m.goToMainMenu()
+			cmds = append(cmds, mainCmd)
+		} else {
+			// FODT: visa mallväljare
+			templates := app.ListFODTTemplates(m.cwd)
+			m.state = stateChooseFODTTemplate
+			m.activeForm = chooseFODTTemplateForm(templates)
+			cmds = append(cmds, m.activeForm.Init())
+		}
+	}
+	return m, tea.Batch(cmds...)
+}
+
+func (m mainModel) updateChooseFODTTemplate(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+	m, cmd := m.stepActiveForm(msg)
+	cmds = append(cmds, cmd)
+
+	if m.activeForm.State == huh.StateCompleted {
+		m.selectedFODTTemplate = m.activeForm.GetString("fodt_template")
+
+		var källorDir, docName string
+		switch m.selectedDocumentType {
+		case DocumentTypeProtokoll:
+			if len(m.date) >= 4 {
+				year := m.date[:4]
+				källorDir = filepath.Join(m.cwd, m.selectedOrg.Id, "Årsakter", year, m.selectedBody, m.date, "källor")
+			}
+			docName = "protokoll"
+		case DocumentTypeStyrdokument:
+			safeType := strings.ReplaceAll(m.selectedGoverningDocType, " ", "-")
+			safeName := strings.ReplaceAll(m.selectedGoverningDocName, " ", "-")
+			källorDir = filepath.Join(m.cwd, m.selectedOrg.Id, "Grundakter", "Styrdokument", safeType, safeName, "källor")
+			docName = "document"
+		case DocumentTypeOther:
+			safeCategory := strings.ReplaceAll(m.grundaktCategory, " ", "-")
+			safeName := strings.ReplaceAll(m.selectedGoverningDocName, " ", "-")
+			källorDir = filepath.Join(m.cwd, m.selectedOrg.Id, "Grundakter", safeCategory, safeName, "källor")
+			docName = "document"
+		}
+
+		if källorDir != "" {
+			if err := app.CreateFODTDocument(källorDir, docName, m.selectedFODTTemplate, assets.Files); err != nil {
+				m.errMsg = fmt.Sprintf("Kunde inte skapa FODT-dokument: %v", err)
+				return m, tea.Quit
+			}
+		}
+
 		var mainCmd tea.Cmd
 		m, mainCmd = m.goToMainMenu()
 		cmds = append(cmds, mainCmd)
@@ -1169,6 +1248,10 @@ func (m mainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m.updateGenerateKeyContract(msg)
 	case stateKeyActionResult:
 		return m.updateKeyActionResult(msg)
+	case stateChooseSourceFormat:
+		return m.updateChooseSourceFormat(msg)
+	case stateChooseFODTTemplate:
+		return m.updateChooseFODTTemplate(msg)
 	default:
 		m.errMsg = fmt.Sprintf("okänt tillstånd: %d", m.state)
 		return m, tea.Quit

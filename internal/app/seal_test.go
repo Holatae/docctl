@@ -1,7 +1,9 @@
 package app
 
 import (
+	"docctl/internal/assets"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -35,6 +37,37 @@ func loadTestEntity(t *testing.T) *openpgp.Entity {
 		t.Fatalf("Failed to load test PGP entity: %v", err)
 	}
 	return entities[0]
+}
+
+func TestSealFODT(t *testing.T) {
+	if _, err := exec.LookPath("libreoffice"); err != nil {
+		t.Skip("libreoffice saknas på PATH — hoppar över FODT-seal-test")
+	}
+
+	entity := loadTestEntity(t)
+	cwd, id := setupTestOrg(t)
+
+	källorDir := filepath.Join(cwd, id, "Årsakter", "2025", "styrelsen", "2025-05-05", "källor")
+	arkivDir := filepath.Join(cwd, id, "Årsakter", "2025", "styrelsen", "2025-05-05", "arkiv")
+
+	_ = CreateFODTDocument(källorDir, "protokoll", "__blank__", assets.Files)
+	_ = DoBuild(källorDir, false)
+
+	if err := DoSeal(källorDir, entity, false); err != nil {
+		t.Fatalf("DoSeal misslyckades: %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(arkivDir, "ATTESTATION.md.sig")); os.IsNotExist(err) {
+		t.Fatal("ATTESTATION.md.sig saknas efter seal")
+	}
+
+	data, err := os.ReadFile(filepath.Join(arkivDir, "ATTESTATION.md"))
+	if err != nil {
+		t.Fatalf("Kunde inte läsa ATTESTATION.md: %v", err)
+	}
+	if !strings.Contains(string(data), "protokoll.fodt") {
+		t.Error("ATTESTATION.md saknar hash för protokoll.fodt")
+	}
 }
 
 func TestSeal(t *testing.T) {

@@ -371,6 +371,32 @@ func listAllBuildDocumentsFromAssociation(cwd string, org app.Association) *huh.
 	)
 }
 
+func chooseSourceFormatForm() *huh.Form {
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Key("source_format").Title("Välj källformat").Options(
+				huh.NewOption("📝 Markdown (standard)", string(SourceFormatMarkdown)),
+				huh.NewOption("📄 OpenDocument Text / FODT", string(SourceFormatFODT)),
+			),
+		),
+	)
+}
+
+func chooseFODTTemplateForm(templates []string) *huh.Form {
+	options := []huh.Option[string]{
+		huh.NewOption("Tom (standard)", "__blank__"),
+	}
+	for _, p := range templates {
+		name := filepath.Base(p)
+		options = append(options, huh.NewOption(name, p))
+	}
+	return huh.NewForm(
+		huh.NewGroup(
+			huh.NewSelect[string]().Key("fodt_template").Title("Välj FODT-mall").Options(options...),
+		),
+	)
+}
+
 func askGenericYesOrNowForm(title string, description string, key string) *huh.Form {
 	return huh.NewForm(
 		huh.NewGroup(

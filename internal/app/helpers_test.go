@@ -8,6 +8,7 @@ import (
 	"testing"
 )
 
+
 func setupTestOrg(t *testing.T) (string, string) {
 	t.Helper()
 
@@ -70,6 +71,28 @@ func TestInitialization(t *testing.T) {
 		t.Errorf("Found no unpacked files")
 	}
 
+}
+
+func TestCreateFODTDocument(t *testing.T) {
+	cwd, _ := setupTestOrg(t)
+
+	källorDir := filepath.Join(cwd, "TestOrg", "Grundakter", "Avtal", "Test-avtal", "källor")
+	if err := CreateFODTDocument(källorDir, "document", "__blank__", assets.Files); err != nil {
+		t.Fatalf("CreateFODTDocument misslyckades: %v", err)
+	}
+
+	fodtPath := filepath.Join(källorDir, "document.fodt")
+	if _, err := os.Stat(fodtPath); os.IsNotExist(err) {
+		t.Errorf("Saknar .fodt-källfil: %s", fodtPath)
+	}
+
+	data, err := os.ReadFile(fodtPath)
+	if err != nil {
+		t.Fatalf("Kunde inte läsa .fodt-fil: %v", err)
+	}
+	if !strings.HasPrefix(strings.TrimSpace(string(data)), "<?xml") {
+		t.Error("Skapad .fodt-fil är inte giltig XML")
+	}
 }
 
 func TestAddingOrganization(t *testing.T) {

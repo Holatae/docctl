@@ -12,7 +12,7 @@ func TestGenerateKey(t *testing.T) {
 	dir := t.TempDir()
 	pin := []byte("test-pin-123")
 
-	shortFP, err := keys.GenerateKey(dir, "testorg", "Test Signator", "Testroll", "test@example.com", pin)
+	shortFP, err := keys.GenerateKey(dir, "testorg", "Test Signator", "Testroll", "test@example.com", pin, nil)
 	if err != nil {
 		t.Fatalf("GenerateKey returnerade fel: %v", err)
 	}
@@ -35,11 +35,11 @@ func TestListKeysForOrg(t *testing.T) {
 	dir := t.TempDir()
 	pin := []byte("pin")
 
-	fp1, err := keys.GenerateKey(dir, "org1", "Alice", "Roll", "a@b.com", pin)
+	fp1, err := keys.GenerateKey(dir, "org1", "Alice", "Roll", "a@b.com", pin, nil)
 	if err != nil {
 		t.Fatalf("GenerateKey org1: %v", err)
 	}
-	_, err = keys.GenerateKey(dir, "org2", "Bob", "Roll", "b@b.com", pin)
+	_, err = keys.GenerateKey(dir, "org2", "Bob", "Roll", "b@b.com", pin, nil)
 	if err != nil {
 		t.Fatalf("GenerateKey org2: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestListAllKeys(t *testing.T) {
 	pin := []byte("pin")
 
 	for _, org := range []string{"a", "b", "c"} {
-		if _, err := keys.GenerateKey(dir, org, "Namn", "Roll", org+"@test.com", pin); err != nil {
+		if _, err := keys.GenerateKey(dir, org, "Namn", "Roll", org+"@test.com", pin, nil); err != nil {
 			t.Fatalf("GenerateKey %s: %v", org, err)
 		}
 	}
@@ -82,7 +82,7 @@ func TestLoadAndUnlock_CorrectPin(t *testing.T) {
 	dir := t.TempDir()
 	pin := []byte("rätt-pin")
 
-	shortFP, err := keys.GenerateKey(dir, "myorg", "Sven Svensson", "Ordförande", "sven@test.com", pin)
+	shortFP, err := keys.GenerateKey(dir, "myorg", "Sven Svensson", "Ordförande", "sven@test.com", pin, nil)
 	if err != nil {
 		t.Fatalf("GenerateKey: %v", err)
 	}
@@ -107,7 +107,7 @@ func TestLoadAndUnlock_WrongPin(t *testing.T) {
 	dir := t.TempDir()
 	pin := []byte("rätt-pin")
 
-	shortFP, err := keys.GenerateKey(dir, "myorg", "Anna Andersson", "Sekreterare", "anna@test.com", pin)
+	shortFP, err := keys.GenerateKey(dir, "myorg", "Anna Andersson", "Sekreterare", "anna@test.com", pin, nil)
 	if err != nil {
 		t.Fatalf("GenerateKey: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestKeyMeta_Fields(t *testing.T) {
 	dir := t.TempDir()
 	pin := []byte("pin")
 
-	_, err := keys.GenerateKey(dir, "testorg", "Karl Karlsson", "Kassör", "karl@test.com", pin)
+	_, err := keys.GenerateKey(dir, "testorg", "Karl Karlsson", "Kassör", "karl@test.com", pin, nil)
 	if err != nil {
 		t.Fatalf("GenerateKey: %v", err)
 	}

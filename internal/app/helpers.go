@@ -223,7 +223,7 @@ func FirstTimeRun(toolingDir string, cwd string, embeddedFiles embed.FS) (err er
 	}
 
 	for _, file := range files {
-		if !file.IsDir() {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".typ") {
 			// Läs filen inifrån binären
 			contains, err := embeddedFiles.ReadFile("embeds/" + file.Name())
 			if err == nil {
@@ -232,9 +232,14 @@ func FirstTimeRun(toolingDir string, cwd string, embeddedFiles embed.FS) (err er
 				if err := os.WriteFile(path, contains, 0o644); err != nil {
 					return fmt.Errorf("cannot write file: %v", err)
 				}
-				//fmt.Printf("   -> Packade upp systemmall: %s\n", file.Name())
 			}
 		}
+	}
+
+	// Skapa tom katalog för användarens FODT-mallar
+	fodtMallarDir := filepath.Join(mallarDir, "fodt")
+	if err := os.MkdirAll(fodtMallarDir, 0o755); err != nil {
+		return fmt.Errorf("could not create fodt mallar directory: %v", err)
 	}
 
 	// 3. Skapa den perfekta .gitignore-filen
@@ -288,7 +293,7 @@ func UpdateTemplates(cwd string, embeddedFiles embed.FS) error {
 	}
 
 	for _, file := range files {
-		if !file.IsDir() {
+		if !file.IsDir() && strings.HasSuffix(file.Name(), ".typ") {
 			contains, err := embeddedFiles.ReadFile("embeds/" + file.Name())
 			if err != nil {
 				return fmt.Errorf("could not read embedded file %s: %w", file.Name(), err)
@@ -355,6 +360,55 @@ func CreateGuidanceDocuments(cwd string, orgId string, subcategory string, docNa
 func CreateOtherGoverningDocuments(cwd string, orgId string, category string, docName string) error {
 	base := filepath.Join(cwd, orgId, "Grundakter")
 	return createGoverningDocument(base, category, docName)
+}
+
+// ListFODTTemplates returns absolute paths to all .fodt files in .tooling/mallar/fodt/
+func ListFODTTemplates(cwd string) []string {
+	fodtDir := filepath.Join(cwd, ".tooling", "mallar", "fodt")
+	entries, err := os.ReadDir(fodtDir)
+	if err != nil {
+		return nil
+	}
+	var paths []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".fodt") {
+			paths = append(paths, filepath.Join(fodtDir, e.Name()))
+		}
+	}
+	return paths
+}
+
+// CreateFODTDocument creates a .fodt source file in källorDir.
+// templatePath is either "__blank__" (use embedded blank.fodt) or an absolute path to a .fodt template file.
+func CreateFODTDocument(källorDir, docName, templatePath string, embeddedFiles embed.FS) error {
+	if err := os.MkdirAll(källorDir, os.ModePerm); err != nil {
+		return fmt.Errorf("kunde inte skapa källmapp: %w", err)
+	}
+
+	destPath := filepath.Join(källorDir, docName+".fodt")
+
+	if templatePath == "__blank__" {
+		data, err := embeddedFiles.ReadFile("embeds/blank.fodt")
+		if err != nil {
+			return fmt.Errorf("kunde inte läsa blank.fodt: %w", err)
+		}
+		return os.WriteFile(destPath, data, 0o644)
+	}
+
+	src, err := os.Open(templatePath)
+	if err != nil {
+		return fmt.Errorf("kunde inte öppna mall %s: %w", templatePath, err)
+	}
+	defer func() { _ = src.Close() }()
+
+	dst, err := os.Create(destPath)
+	if err != nil {
+		return fmt.Errorf("kunde inte skapa fil: %w", err)
+	}
+	defer func() { _ = dst.Close() }()
+
+	_, err = io.Copy(dst, src)
+	return err
 }
 
 func createGoverningDocument(baseDir string, category string, docName string) error {
