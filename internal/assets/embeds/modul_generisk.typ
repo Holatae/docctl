@@ -1,27 +1,14 @@
 #import "karna.typ": pappers_motor
 
-#let layout_styrdokument(
+// Generisk layout: inga formkrav (ingen versionsruta, ingen signaturssida).
+// Används när typ-fältet i YAML-frontmatter inte är "protokoll" eller "styrdokument".
+#let layout_generisk(
   titel: none,
-  version: none,
-  antagen: none,
-  bilagor: (),
   org_namn: "",
   org_nummer: "",
   body,
 ) = {
-  let styrdokument_innehall = [
-
-    // En snygg versionstabell högst upp istället för datum/plats!
-    #align(center)[
-      #block(fill: luma(240), inset: 10pt, radius: 4pt, width: 80%)[
-        #grid(
-          columns: (1fr, 1fr),
-          align(left)[*Version:* #if version != none { version } else { "Utkast" }],
-          align(right)[*Beslutat:* #if antagen != none { antagen } else { "Ej antagen" }],
-        )
-      ]
-      #v(1.5cm)
-    ]
+  let generisk_innehall = [
 
     // Numrering: 1. / 1.1 / 1.1.1 — nollstrippning hanterar att titeln inte är ett Typst-heading
     #set heading(numbering: (..nums) => {
@@ -29,6 +16,7 @@
       if vals.len() > 0 and vals.at(0) == 0 { vals = vals.slice(1) }
       if vals.len() > 0 { vals.map(str).join(".") }
     })
+
     #show heading.where(level: 2): it => block(width: 100%, inset: (top: 1em, bottom: 0.5em))[
       #text(size: 14pt, weight: "bold")[#if it.numbering != none {
           counter(heading).display(it.numbering)
@@ -43,6 +31,6 @@
     titel: titel,
     org_namn: org_namn,
     org_nummer: org_nummer,
-    styrdokument_innehall,
+    generisk_innehall,
   )
 }

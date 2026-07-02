@@ -354,12 +354,12 @@ func CreateProtokoll(cwd string, orgId string, body string, date string) error {
 
 func CreateGuidanceDocuments(cwd string, orgId string, subcategory string, docName string) error {
 	base := filepath.Join(cwd, orgId, "Grundakter", "Styrdokument")
-	return createGoverningDocument(base, subcategory, docName)
+	return createGoverningDocument(base, subcategory, docName, "styrdokument")
 }
 
 func CreateOtherGoverningDocuments(cwd string, orgId string, category string, docName string) error {
 	base := filepath.Join(cwd, orgId, "Grundakter")
-	return createGoverningDocument(base, category, docName)
+	return createGoverningDocument(base, category, docName, "generisk")
 }
 
 // ListFODTTemplates returns absolute paths to all .fodt files in .tooling/mallar/fodt/
@@ -411,12 +411,16 @@ func CreateFODTDocument(källorDir, docName, templatePath string, embeddedFiles 
 	return err
 }
 
-func createGoverningDocument(baseDir string, category string, docName string) error {
+func createGoverningDocument(baseDir string, category string, docName string, docTyp string) error {
 	safeCategory := strings.ReplaceAll(category, " ", "-")
 	safeDocName := strings.ReplaceAll(docName, " ", "-")
-	ymlCategory := strings.ToLower(category)
 
-	standardText := fmt.Sprintf("---\ntyp: %s\ntitle: %s\nversion: 1.0\nantagen: ÅÅÅÅ-MM-DD av Styrelsen\n---\n\n## 1. Syfte\nSyftet med detta dokument är...\n", ymlCategory, docName)
+	var standardText string
+	if docTyp == "generisk" {
+		standardText = fmt.Sprintf("---\ntyp: generisk\ntitle: %s\n---\n\n## Syfte\nSyftet med detta dokument är...\n", docName)
+	} else {
+		standardText = fmt.Sprintf("---\ntyp: %s\ntitle: %s\nversion: 1.0\nantagen: ÅÅÅÅ-MM-DD av Styrelsen\n---\n\n## Syfte\nSyftet med detta dokument är...\n", docTyp, docName)
+	}
 	mdPath := filepath.Join(baseDir, safeCategory, safeDocName, "källor", "document.md")
 
 	if err := os.MkdirAll(filepath.Join(baseDir, safeCategory, safeDocName, "källor"), os.ModePerm); err != nil {

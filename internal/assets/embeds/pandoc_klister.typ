@@ -1,3 +1,10 @@
+// Pandoc-mall: $variabel$-syntaxen är Pandoc (ersätts vid konvertering),
+// resten är vanlig Typst-kod. Filen ska aldrig kompileras direkt med typst.
+//
+// YAML-fält som stöds i källdokumentets frontmatter:
+//   typ, title, datum, tid, plats, version, antagen,
+//   ordforande, sekreterare, justerare (lista), parter (lista), bilagor (lista)
+
 #import "$org_mall$": org_namn, org_nummer
 #import "/.tooling/mallar/router.typ": org_dokument
 
