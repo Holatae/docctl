@@ -55,10 +55,23 @@ func HashFile(filePath string) (string, error) {
 	return hex.EncodeToString(h.Sum(nil)), nil
 }
 
+// isSystemFile rapporterar om ett filnamn är ett operativsystemsartefakt
+// som aldrig ska ingå i manifest, ZIP eller kopieras till arkivet.
+func isSystemFile(name string) bool {
+	switch name {
+	case ".DS_Store", "Thumbs.db", "desktop.ini":
+		return true
+	}
+	return strings.HasPrefix(name, "._")
+}
+
 func copyDir(src string, dst string) error {
 	return filepath.Walk(src, func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
+		}
+		if isSystemFile(info.Name()) {
+			return nil
 		}
 		relPath, _ := filepath.Rel(src, path)
 		dstPath := filepath.Join(dst, relPath)
@@ -177,7 +190,7 @@ func CreateZipArchive(srcDir string, destZip string) error {
 		if err != nil {
 			return err
 		}
-		if info.IsDir() {
+		if info.IsDir() || isSystemFile(info.Name()) {
 			return nil
 		}
 

@@ -59,7 +59,7 @@ func DoSeal(kallorPath string, entity *openpgp.Entity, force bool) (err error) {
 
 	var files []string
 	err = filepath.WalkDir(arkivDir, func(path string, d os.DirEntry, err error) error {
-		if !d.IsDir() && d.Name() != "ATTESTATION.md" && d.Name() != "ATTESTATION.md.sig" {
+		if !d.IsDir() && d.Name() != "ATTESTATION.md" && d.Name() != "ATTESTATION.md.sig" && !isSystemFile(d.Name()) {
 			files = append(files, path)
 		}
 		return nil
