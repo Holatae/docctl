@@ -102,8 +102,14 @@ func DoBuild(pathToSources string, force bool) (err error) {
 
 	relMallPath, _ := filepath.Rel(arkivDir, orgMallPath)
 
+	// Bibliografi: leta i källorDir, fallback till .tooling/references.bib
+	bibArgs := findBibArgs(kallorDir, projRoot)
+	cslArgs := findCSLArgs(kallorDir, projRoot)
+
 	tempTypst := filepath.Join(arkivDir, baseName+"_temp.typ")
-	if err := RunCmd("pandoc", mdFile, "-t", "typst", "-o", tempTypst, "--template", pandocTemplate, "-V", "org_mall="+relMallPath, "--citeproc"); err != nil {
+	pandocArgs := append([]string{mdFile, "-t", "typst", "-o", tempTypst, "--template", pandocTemplate, "-V", "org_mall=" + relMallPath, "--citeproc"}, bibArgs...)
+	pandocArgs = append(pandocArgs, cslArgs...)
+	if err := RunCmd("pandoc", pandocArgs...); err != nil {
 		return fmt.Errorf("pandoc misslyckades %w", err)
 	}
 
@@ -113,13 +119,15 @@ func DoBuild(pathToSources string, force bool) (err error) {
 	}
 	_ = os.Remove(tempTypst)
 
-	htmlOut := filepath.Join(arkivDir, baseName+".html")
-	if err := RunCmd("pandoc", mdFile, "-o", htmlOut, "--standalone"); err != nil {
+	htmlArgs := append([]string{mdFile, "-o", filepath.Join(arkivDir, baseName+".html"), "--standalone", "--citeproc"}, bibArgs...)
+	htmlArgs = append(htmlArgs, cslArgs...)
+	if err := RunCmd("pandoc", htmlArgs...); err != nil {
 		return fmt.Errorf("pandoc failed to compile (HTML): %w", err)
 	}
 
-	docxOut := filepath.Join(arkivDir, baseName+".docx")
-	if err := RunCmd("pandoc", mdFile, "-o", docxOut); err != nil {
+	docxArgs := append([]string{mdFile, "-o", filepath.Join(arkivDir, baseName+".docx"), "--citeproc"}, bibArgs...)
+	docxArgs = append(docxArgs, cslArgs...)
+	if err := RunCmd("pandoc", docxArgs...); err != nil {
 		return fmt.Errorf("pandoc failed to compile (DOCX): %w", err)
 	}
 
@@ -194,4 +202,34 @@ func buildFODT(fodtFile, baseName, arkivDir string) error {
 
 func copyFile(src, dst *os.File) (int64, error) {
 	return dst.ReadFrom(src)
+}
+
+// findBibArgs returnerar --bibliography-flaggor för alla .bib-filer i källorDir.
+// Fallback: .tooling/references.bib på projektnivå.
+func findBibArgs(kallorDir, projRoot string) []string {
+	bibs, _ := filepath.Glob(filepath.Join(kallorDir, "*.bib"))
+	if len(bibs) == 0 {
+		global := filepath.Join(projRoot, ".tooling", "references.bib")
+		if _, err := os.Stat(global); err == nil {
+			bibs = []string{global}
+		}
+	}
+	var args []string
+	for _, b := range bibs {
+		args = append(args, "--bibliography", b)
+	}
+	return args
+}
+
+// findCSLArgs returnerar en --csl-flagga om en .csl-fil hittas i källorDir
+// eller i .tooling/mallar/.
+func findCSLArgs(kallorDir, projRoot string) []string {
+	csls, _ := filepath.Glob(filepath.Join(kallorDir, "*.csl"))
+	if len(csls) == 0 {
+		csls, _ = filepath.Glob(filepath.Join(projRoot, ".tooling", "mallar", "*.csl"))
+	}
+	if len(csls) > 0 {
+		return []string{"--csl", csls[0]}
+	}
+	return nil
 }
