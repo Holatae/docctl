@@ -103,7 +103,7 @@ func DoBuild(pathToSources string, force bool) (err error) {
 	relMallPath, _ := filepath.Rel(arkivDir, orgMallPath)
 
 	tempTypst := filepath.Join(arkivDir, baseName+"_temp.typ")
-	if err := RunCmd("pandoc", mdFile, "-t", "typst", "-o", tempTypst, "--template", pandocTemplate, "-V", "org_mall="+relMallPath); err != nil {
+	if err := RunCmd("pandoc", mdFile, "-t", "typst", "-o", tempTypst, "--template", pandocTemplate, "-V", "org_mall="+relMallPath, "--citeproc"); err != nil {
 		return fmt.Errorf("pandoc misslyckades %w", err)
 	}
 

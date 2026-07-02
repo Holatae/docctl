@@ -21,7 +21,7 @@
     ],
   )
 
-  set text(font: "Linux Libertine", lang: "sv", size: 11pt)
+  set text(font: ("Linux Libertine", "Libertinus Serif", "Georgia", "Times New Roman"), lang: "sv", size: 11pt)
 
   // Tabeller vänsterställs
   show figure.where(kind: table): set align(left)
