@@ -34,6 +34,15 @@ func DoBuild(pathToSources string, force bool) (err error) {
 		return fmt.Errorf("could not create arkiv directory: %w", err)
 	}
 
+	// Kopiera bilagor innan bygget så att typst/pandoc hittar dem via relativa sökvägar
+	bilagorSrc := filepath.Join(kallorDir, "bilagor")
+	bilagorDest := filepath.Join(arkivDir, "bilagor")
+	if stat, err := os.Stat(bilagorSrc); err == nil && stat.IsDir() {
+		if err := copyDir(bilagorSrc, bilagorDest); err != nil {
+			return fmt.Errorf("kunde inte kopiera bilagor: %w", err)
+		}
+	}
+
 	curr := kallorDir
 	var projRoot string
 	for {
@@ -112,14 +121,6 @@ func DoBuild(pathToSources string, force bool) (err error) {
 	docxOut := filepath.Join(arkivDir, baseName+".docx")
 	if err := RunCmd("pandoc", mdFile, "-o", docxOut); err != nil {
 		return fmt.Errorf("pandoc failed to compile (DOCX): %w", err)
-	}
-
-	bilagorSrc := filepath.Join(kallorDir, "bilagor")
-	bilagorDest := filepath.Join(arkivDir, "bilagor")
-	if stat, err := os.Stat(bilagorSrc); err == nil && stat.IsDir() {
-		if err := copyDir(bilagorSrc, bilagorDest); err != nil {
-			return err
-		}
 	}
 
 	fmt.Println("✅ Klart! Output: ", arkivDir)

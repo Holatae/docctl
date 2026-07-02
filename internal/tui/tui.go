@@ -400,7 +400,9 @@ func (m mainModel) updateChooseDocumentToBuild(msg tea.Msg) (tea.Model, tea.Cmd)
 	cmds = append(cmds, cmd)
 
 	if m.force {
-		app.DoBuild(filepath.Join(m.selectedOrg.Id, m.selectedDocumentToBuild, "källor"), m.force)
+		if err := app.DoBuild(filepath.Join(m.selectedOrg.Id, m.selectedDocumentToBuild, "källor"), m.force); err != nil {
+			fmt.Println("❌ Byggfel:", err)
+		}
 		m.force = false
 		var mainCmd tea.Cmd
 		m, mainCmd = m.goToMainMenu()
@@ -421,7 +423,9 @@ func (m mainModel) updateChooseDocumentToBuild(msg tea.Msg) (tea.Model, tea.Cmd)
 				m.activeForm = askGenericYesOrNowForm("⚠️ Arkivet/Avtalet är förseglat!", " Byggs det om raderas signaturen. Fortsätta?", "action")
 				cmds = append(cmds, m.activeForm.Init())
 			} else {
-				app.DoBuild(filepath.Join(m.selectedOrg.Id, m.selectedDocumentToBuild, "källor"), m.force)
+				if err := app.DoBuild(filepath.Join(m.selectedOrg.Id, m.selectedDocumentToBuild, "källor"), m.force); err != nil {
+					fmt.Println("❌ Byggfel:", err)
+				}
 				var mainCmd tea.Cmd
 				m, mainCmd = m.goToMainMenu()
 				cmds = append(cmds, mainCmd)
